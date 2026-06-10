@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scrapper Generalista</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Scrapper Generalista</h1>
+      </header>
+
+      <div class="panels">
+        <section id="config-panel" class="panel">
+          <h2>Configuracion</h2>
+
+          <label>
+            Termino de busqueda
+            <input id="search-term" type="text" placeholder="ej: taller mecanico" />
+          </label>
+
+          <label>
+            Zoom
+            <input id="zoom" type="number" min="10" max="18" value="12" />
+          </label>
+
+          <label>
+            Tipo de BD
+            <select id="db-type">
+              <option value="sqlite">SQLite (embebido)</option>
+              <option value="mysql">MySQL / MariaDB</option>
+            </select>
+          </label>
+
+          <div id="mysql-fields" class="db-fields" style="display:none">
+            <label>Host <input id="mysql-host" type="text" value="localhost" /></label>
+            <label>Puerto <input id="mysql-port" type="number" value="3306" /></label>
+            <label>Usuario <input id="mysql-user" type="text" value="root" /></label>
+            <label>Contrase&ntilde;a <input id="mysql-pass" type="password" /></label>
+            <label>Base de datos <input id="mysql-db" type="text" value="scrapper" /></label>
+          </div>
+
+          <div id="sqlite-fields" class="db-fields">
+            <label>
+              Ruta SQLite
+              <input id="sqlite-path" type="text" value="data/scrapper.db" />
+            </label>
+          </div>
+
+          <label>
+            Navegador
+            <select id="browser-select">
+              <option value="">Auto (Playwright Chromium)</option>
+            </select>
+          </label>
+          <button id="detect-browsers-btn" type="button">Detectar navegadores</button>
+
+          <label>
+            User-Agent (uno por linea)
+            <textarea id="user-agents" rows="3">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36</textarea>
+          </label>
+
+          <label>
+            Iteraciones (0 = hasta terminar)
+            <input id="iterations" type="number" min="0" value="0" />
+          </label>
+
+          <button id="save-config-btn" type="button">Guardar configuracion</button>
+        </section>
+
+        <section id="control-panel" class="panel">
+          <h2>Control</h2>
+
+          <button id="generate-grid-btn" type="button">Generar cuadrantes</button>
+          <button id="start-btn" type="button" class="primary">Iniciar scraping</button>
+          <button id="stop-btn" type="button" class="danger" disabled>Detener</button>
+
+          <div class="progress-section">
+            <p>Progreso: <span id="progress-count">0</span></p>
+            <div class="progress-bar">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="log-section">
+            <h3>Log de eventos</h3>
+            <div id="log" class="log-box"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

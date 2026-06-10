@@ -1,0 +1,18 @@
+{
+  "name": "biz-scraping-sidecar",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "bun build --compile src/main.ts --outfile ../src-tauri/binaries/scraper-sidecar",
+    "dev": "bun run src/main.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "chromium-bidi": "0.5.0",
+    "playwright": "^1.60.0"
+  }
+}
