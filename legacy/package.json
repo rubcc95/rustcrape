@@ -1,0 +1,27 @@
+{
+  "name": "scrapper_tintorerias",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx src/index.ts",
+    "generate": "npx tsx src/generator.ts",
+    "build": "node build.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^25.9.2",
+    "cli-progress": "^3.12.0",
+    "commander": "^15.0.0",
+    "mysql2": "^3.22.5",
+    "playwright": "^1.60.0",
+    "tsx": "^4.22.4"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "biz-scraping",
+    "biz-scraping-gui/src-tauri",
+]
+resolver = "2"
