@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -6,7 +5,7 @@ use rustcraper::types::Config;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
-use crate::persistence::{ConfigStore, SavedConfig};
+use crate::persistence::{ConfigStore, GlobalSettings, SavedConfig};
 use crate::verboser::{TauriVerboser, VerboserPayload};
 
 pub struct AppState {
@@ -66,6 +65,21 @@ pub fn set_last_selected(state: State<'_, AppState>, id: String) -> Result<(), S
         .set_last_selected(Some(&id))
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn load_global_settings(state: State<'_, AppState>) -> Result<GlobalSettings, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.load_global_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_global_settings(
+    state: State<'_, AppState>,
+    settings: GlobalSettings,
+) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.save_global_settings(&settings).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

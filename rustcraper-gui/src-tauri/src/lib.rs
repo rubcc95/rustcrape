@@ -26,6 +26,8 @@ pub fn run() {
             commands::run_scraping,
             commands::cancel_scraping,
             commands::pick_executable,
+            commands::load_global_settings,
+            commands::save_global_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,10 +6,10 @@
 
 :root {
   --sidebar-width: 260px;
-  --bg: #1a1a2e;
-  --sidebar-bg: #16213e;
-  --card-bg: #1f2b47;
   --border: #2a3a5c;
+  --bg: #1a1a2e;
+  --card-bg: #1f2b47;
+  --sidebar-bg: #1e2841;
   --text: #e0e0e0;
   --text-muted: #8892b0;
   --primary: #4f8cff;
@@ -33,201 +33,11 @@ html, body {
   overflow: hidden;
 }
 
-#app {
-  display: flex;
-  height: 100vh;
-}
-
-/* ── Sidebar ── */
-#sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  gap: 8px;
-}
-
-#sidebar h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-#project-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.project-item {
-  padding: 10px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.project-item:hover {
-  background: rgba(79, 140, 255, 0.1);
-}
-
-.project-item.selected {
-  background: rgba(79, 140, 255, 0.2);
-  border-left: 3px solid var(--primary);
-}
-
-.project-name {
-  font-weight: 500;
-  font-size: 13px;
-}
-
-.project-date {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-/* ── Main ── */
-#main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  padding: 0;
-  height: 40px;
-  min-height: 40px;
-  border-bottom: 1px solid var(--border);
-  background: var(--card-bg);
-  user-select: none;
-}
-
-.title-drag {
-  flex: 1;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-}
-
-header h1 {
-  font-size: 14px;
-  font-weight: 600;
-  pointer-events: none;
-}
-
-.window-controls {
-  display: flex;
-  align-items: center;
-  height: 100%;
-}
-
-.win-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 100%;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  border-radius: 0;
-  transition: background 0.15s, color 0.15s;
-}
-
-.win-btn svg {
-  width: 12px;
-  height: 12px;
-}
-
-.win-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-}
-
-.win-btn:active {
-  transform: none;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.win-close:hover {
-  background: #e81123;
-  color: #fff;
-}
-
-.win-close:active {
-  background: #bf0f1d;
-  color: #fff;
-}
-
-/* ── Form ── */
-#form-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-}
-
-#form-section h3 {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 16px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-#config-form {
-  columns: 2;
-  column-gap: 24px;
-}
-
-#config-form > * {
-  break-inside: avoid;
-  margin-bottom: 16px;
-}
-
-@media (max-width: 1500px) {
-  #config-form {
-    columns: 1;
-  }
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-}
-
-.field-row {
-  display: flex;
-  gap: 12px;
-}
-
-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
+/* ── Base input styles (fallback for non-scoped) ── */
 input[type="text"],
 input[type="number"],
-input[type="password"] {
+input[type="password"] 
+input[type="checkbox"]{
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -251,46 +61,10 @@ input:disabled {
   background: var(--sidebar-bg);
 }
 
-.checkbox {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-
-.checkbox label {
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 13px;
-  color: var(--text);
-}
-
 input[type="checkbox"] {
   width: 16px;
   height: 16px;
   accent-color: var(--primary);
-}
-
-fieldset {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-legend {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--primary);
-  padding: 0 8px;
-}
-
-.hint {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 input[type="text"][readonly] {
@@ -298,12 +72,7 @@ input[type="text"][readonly] {
   color: var(--text-muted);
 }
 
-.actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-}
-
+/* ── Button base styles ── */
 button {
   padding: 8px 20px;
   border: none;
@@ -319,27 +88,12 @@ button:active {
   transform: scale(0.97);
 }
 
-button:disabled,
-button.disabled,
-button:disabled:hover,
-button.disabled:hover {
+button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
   background: var(--border);
   color: var(--text-muted);
-}
-
-button.btn-danger:disabled,
-button.btn-danger.disabled,
-button.btn-danger:disabled:hover,
-button.btn-danger.disabled:hover {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-color: var(--text-muted);
 }
 
 .btn-primary {
@@ -361,14 +115,20 @@ button.btn-danger.disabled:hover {
 }
 
 .btn-danger {
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
 }
 
 .btn-danger:hover {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-hover);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  background: var(--border);
+  color: var(--text-muted);
 }
 
 .btn-small {
@@ -380,82 +140,6 @@ button.btn-danger.disabled:hover {
 
 .btn-small:hover {
   background: var(--text-muted);
-}
-
-/* ── Project Log ── */
-.project-log {
-  border-top: 1px solid var(--border);
-  margin-top: 16px;
-  background: var(--card-bg);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.project-log-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.project-log-header h4 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-#project-log-output {
-  max-height: 200px;
-  min-height: 80px;
-  overflow-y: auto;
-  padding: 8px 16px;
-  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.log-entry {
-  padding: 1px 0;
-  word-break: break-word;
-}
-
-.log-info {
-  color: var(--info);
-}
-
-.log-warn {
-  color: var(--warn);
-}
-
-.log-error {
-  color: var(--error);
-}
-
-.log-opening_browser,
-.log-scraping_start,
-.log-generating_bounds,
-.log-connecting_db,
-.log-obtaining_bound {
-  color: var(--text);
-}
-
-.log-processed_coincidence,
-.log-written_coincidences,
-.log-writing_coincidences,
-.log-finished {
-  color: var(--run);
-}
-
-.log-accepting_cookies,
-.log-searching_coincidences,
-.log-found_single_coincidence,
-.log-found_multiple_coincidences,
-.log-closing_browser,
-.log-released_bound {
-  color: var(--text-muted);
 }
 
 /* ── Scrollbar ── */
@@ -476,61 +160,7 @@ button.btn-danger.disabled:hover {
   background: var(--text-muted);
 }
 
-/* ── Modal ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  opacity: 1;
-  transition: opacity 0.2s ease;
-}
-
-.modal-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.modal-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 28px 32px 24px;
-  min-width: 340px;
-  max-width: 420px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  text-align: center;
-}
-
-.modal-message {
-  font-size: 15px;
-  color: var(--text);
-  margin-bottom: 24px;
-  line-height: 1.5;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-
-.modal-actions .btn-small {
-  min-width: 100px;
-  padding: 8px 20px;
-  font-size: 13px;
-}
-
-.modal-actions .btn-danger {
-  min-width: 100px;
-  padding: 8px 20px;
-  font-size: 13px;
-}
-
-/* ── Custom number spinners ── */
+/* ── Hide native number spinners ── */
 input[type="number"] {
   -moz-appearance: textfield;
 }
@@ -540,59 +170,4 @@ input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
-}
-
-.number-wrap {
-  display: flex;
-  align-items: stretch;
-}
-
-.number-wrap input[type="number"] {
-  flex: 1;
-  min-width: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  border-right: none;
-}
-
-.number-btns {
-  display: flex;
-  flex-direction: column;
-  width: 24px;
-  border: 1px solid var(--border);
-  border-left: none;
-  border-radius: 0 6px 6px 0;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.num-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--card-bg);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 7px;
-  line-height: 1;
-  min-height: 0;
-  transition: background 0.1s, color 0.1s;
-}
-
-.num-btn:hover {
-  background: var(--sidebar-bg);
-  color: var(--text);
-}
-
-.num-btn:active {
-  background: var(--border);
-  transform: none;
-}
-
-.num-btn + .num-btn {
-  border-top: 1px solid var(--border);
 }

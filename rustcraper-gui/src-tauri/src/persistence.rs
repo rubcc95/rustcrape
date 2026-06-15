@@ -16,20 +16,43 @@ struct Metadata {
     last_selected: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalSettings {
+    pub nordvpn_path: Option<String>,
+}
+
 pub struct ConfigStore {
     configs_dir: PathBuf,
     metadata_path: PathBuf,
+    settings_path: PathBuf,
 }
 
 impl ConfigStore {
     pub fn new(app_data_dir: PathBuf) -> std::io::Result<Self> {
         let configs_dir = app_data_dir.join("configs");
         let metadata_path = app_data_dir.join("metadata.json");
+        let settings_path = app_data_dir.join("settings.json");
         std::fs::create_dir_all(&configs_dir)?;
         Ok(Self {
             configs_dir,
             metadata_path,
+            settings_path,
         })
+    }
+
+    pub fn load_global_settings(&self) -> std::io::Result<GlobalSettings> {
+        if self.settings_path.exists() {
+            let content = std::fs::read_to_string(&self.settings_path)?;
+            Ok(serde_json::from_str(&content)?)
+        } else {
+            Ok(GlobalSettings { nordvpn_path: None })
+        }
+    }
+
+    pub fn save_global_settings(&self, settings: &GlobalSettings) -> std::io::Result<()> {
+        let content = serde_json::to_string_pretty(settings)?;
+        std::fs::write(&self.settings_path, content)?;
+        Ok(())
     }
 
     pub fn list(&self) -> Vec<SavedConfig> {
