@@ -2,9 +2,7 @@ name: Build Windows
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [chromiumoxide]  
   workflow_dispatch:
 
 jobs:
