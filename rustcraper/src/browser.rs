@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use chromiumoxide::handler::viewport::Viewport;
@@ -54,12 +54,20 @@ fn find_browser() -> Option<PathBuf> {
         let local = std::env::var("LOCALAPPDATA").ok();
 
         let candidates = [
-            pf.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
-            pf86.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
-            local.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
-            pf.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
-            pf86.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
-            local.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+            pf.as_ref()
+                .map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            pf86.as_ref()
+                .map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            local
+                .as_ref()
+                .map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            pf.as_ref()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+            pf86.as_ref()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+            local
+                .as_ref()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
         ];
 
         for c in candidates.into_iter().flatten() {
@@ -180,9 +188,9 @@ impl std::ops::Deref for Browser {
 mod tests {
 
     use super::*;
-    use crate::verboser::DebugVerboser;
     use crate::scrapper::scrape;
     use crate::types::{PersistentConfig, SearchConfig, SearchContext};
+    use crate::verboser::DebugVerboser;
 
     #[tokio::test]
     #[ignore]
