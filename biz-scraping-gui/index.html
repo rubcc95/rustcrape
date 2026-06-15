@@ -1,43 +1,162 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <title>biz-scraping</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div id="app">
+      <aside id="sidebar">
+        <h2>Proyectos</h2>
+        <div id="project-list"></div>
+        <button id="new-config-btn" class="btn-primary">+ Nuevo</button>
+      </aside>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+      <main id="main">
+        <header>
+          <div class="title-drag" data-tauri-drag-region>
+            <h1>biz-scraping</h1>
+          </div>
+          <div class="window-controls">
+            <button id="minimize-btn" class="win-btn win-minimize" title="Minimizar">
+              <svg viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
+            </button>
+            <button id="maximize-btn" class="win-btn win-maximize" title="Maximizar">
+              <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+            </button>
+            <button id="close-btn" class="win-btn win-close" title="Cerrar">
+              <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <section id="form-section">
+          <h3>Configuración</h3>
+          <form id="config-form">
+            <div class="field">
+              <label for="project-name">Nombre del proyecto</label>
+              <input type="text" id="project-name" required />
+            </div>
+
+            <fieldset>
+              <legend>Búsqueda</legend>
+              <div class="field">
+                <label for="search-query">Término de búsqueda</label>
+                <input type="text" id="search-query" value="tintorerías" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="zoom">Zoom</label>
+                  <input type="number" id="zoom" value="12" min="1" max="20" />
+                </div>
+                <div class="field">
+                  <label for="stop-threshold">Stop threshold</label>
+                  <input type="number" id="stop-threshold" value="3" min="1" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="delay-min">Delay min (ms)</label>
+                  <input type="number" id="delay-min" value="500" min="100" />
+                </div>
+                <div class="field">
+                  <label for="delay-max">Delay max (ms)</label>
+                  <input type="number" id="delay-max" value="2000" min="100" />
+                </div>
+              </div>
+              <div class="field checkbox">
+                <input type="checkbox" id="headless" />
+                <label for="headless">Headless</label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Rate limit e iteraciones</legend>
+              <div class="field-row">
+                <div class="field">
+                  <label for="rate-limit">Rate limit (por hora)</label>
+                  <input type="number" id="rate-limit" value="0" min="0" />
+                </div>
+                <div class="field">
+                  <label for="iterations">Iteraciones</label>
+                  <input type="number" id="iterations" value="0" min="0" />
+                  <span class="hint">0 = sin límite</span>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Base de datos</legend>
+              <div class="field">
+                <label for="db-host">Host</label>
+                <input type="text" id="db-host" value="localhost" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="db-port">Puerto</label>
+                  <input type="number" id="db-port" value="3306" min="1" max="65535" />
+                </div>
+                <div class="field">
+                  <label for="db-database">Base de datos</label>
+                  <input type="text" id="db-database" value="biz_scraping" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="db-user">Usuario</label>
+                  <input type="text" id="db-user" value="root" />
+                </div>
+                <div class="field">
+                  <label for="db-password">Contraseña</label>
+                  <input type="password" id="db-password" />
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>VPN</legend>
+              <div class="field">
+                <label for="nordvpn-path">Ruta de NordVPN</label>
+                <input type="text" id="nordvpn-path" />
+              </div>
+              <div class="field">
+                <label for="ip-rotation-frequency">Rotar IP cada (iteraciones)</label>
+                <input type="number" id="ip-rotation-frequency" value="0" min="0" />
+                <span class="hint">0 = sin rotación</span>
+              </div>
+            </fieldset>
+
+          </form>
+
+          <div class="actions">
+            <button type="submit" form="config-form" id="save-btn" class="btn-primary">Guardar</button>
+            <button type="button" id="run-btn" class="btn-run">Ejecutar</button>
+            <button type="button" id="delete-btn" class="btn-danger">Eliminar</button>
+          </div>
+
+          <div class="project-log">
+            <div class="project-log-header">
+              <h4>Log</h4>
+              <button type="button" id="clear-project-log-btn" class="btn-small">Limpiar</button>
+            </div>
+            <div id="project-log-output"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal-card">
+        <p id="modal-message" class="modal-message"></p>
+        <div class="modal-actions">
+          <button id="modal-cancel-btn" class="btn-small">Cancelar</button>
+          <button id="modal-confirm-btn" class="btn-danger">Eliminar</button>
+        </div>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
-
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+    </div>
   </body>
 </html>

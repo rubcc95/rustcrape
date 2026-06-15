@@ -1,7 +1,10 @@
 mod spain_border;
 
-pub use spain_border::SPAIN;    
+pub use spain_border::SPAIN;
 
+use crate::verboser::Verboser;
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Border {
     vertices: &'static [(f64, f64); 2978],
     polygons: &'static [usize; 24],
@@ -17,13 +20,25 @@ impl Border {
         (v * 1_000_000.0).round() / 1_000_000.0
     }
 
-    pub fn generate_grid(&self, zoom: u32) -> Result<Vec<(f64, f64)>, String> {
+    pub fn generate_grid(
+        &self,
+        zoom: u32,
+        verboser: &impl Verboser,
+    ) -> Result<Vec<(f64, f64)>, String> {
         let cell_size = 360.0 / (1u64 << zoom) as f64;
         let half_size = cell_size / 2.0;
 
+        let lat_count = ((BOUNDS_NORTH - BOUNDS_SOUTH - half_size) / cell_size) as usize + 1;
+        let lng_count = ((BOUNDS_EAST - BOUNDS_WEST - half_size) / cell_size) as usize + 1;
+        let total_cells = lat_count * lng_count;
+
+        verboser.generating_bounds(0, 0, total_cells);
+        
         let mut centers = Vec::new();
 
         let mut lat = BOUNDS_SOUTH + half_size;
+        let mut total = 0;
+
         while lat <= BOUNDS_NORTH {
             let mut lng = BOUNDS_WEST + half_size;
             while lng <= BOUNDS_EAST {
@@ -32,6 +47,8 @@ impl Border {
                 }
                 lng += cell_size;
             }
+            total += lng_count;
+            verboser.generating_bounds(total, centers.len(), total_cells);
             lat += cell_size;
         }
 
@@ -93,7 +110,8 @@ mod tests {
 
     #[test]
     fn test_generate_grid_zoom_12() {
-        let result = SPAIN.generate_grid(12);
+        use crate::verboser::DebugProgress;
+        let result = SPAIN.generate_grid(12, &DebugProgress::default());
         assert!(result.is_ok());
         let points = result.unwrap();
         assert!(!points.is_empty(), "should generate at least one point");

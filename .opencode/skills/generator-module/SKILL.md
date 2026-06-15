@@ -3,7 +3,7 @@ name: generator-module
 description: >-
   Use when working on the grid generator at biz-scraping/src/generator/.
   Covers the Border struct, generate_grid algorithm, Spain border GeoJSON
-  constants, point-in-polygon testing, and quadrant grid logic.
+  constants, point-in-polygon testing, and bound grid logic.
   NOT for the scraper or shared types.
 ---
 
@@ -96,6 +96,6 @@ The test currently takes ~20s for zoom=12 (realistic: ~4000+ cells).
 ## Usage notes
 
 - `generate_grid()` is called by the DB layer (future `db.rs`) to populate the
-  `cuadrantes` table when it's first created
-- Can also be called standalone to inspect which quadrant centers cover Spain
+  `bounds` table when it's first created
+- Can also be called standalone to inspect which bound centers cover Spain
 - The method takes `&self` (accesses border data) — always use `SPAIN.generate_grid(z)`

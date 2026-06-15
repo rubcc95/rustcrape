@@ -1,14 +1,30 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod commands;
+mod persistence;
+mod verboser;
+
+use commands::AppState;
+use persistence::ConfigStore;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let store = ConfigStore::new(app_data_dir).expect("failed to init config store");
+            app.manage(AppState::new(store));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_configs,
+            commands::save_config,
+            commands::delete_config,
+            commands::get_last_selected,
+            commands::set_last_selected,
+            commands::run_scraping,
+            commands::cancel_scraping,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

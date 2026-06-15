@@ -6,7 +6,7 @@ import { connect, ensureTables, type SafeConnection } from './db.js';
 import { buscar } from './scrapper.js';
 import { nordvpnDisponible, rotarVpn } from './vpn.js';
 
-let currentQuadrant: { lat: number; lng: number } | null = null;
+let currentBound: { lat: number; lng: number } | null = null;
 let shuttingDown = false;
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -208,7 +208,7 @@ async function iteration(conn: SafeConnection, searchQuery: string, current: num
   );
   if (claimResult.affectedRows === 0) return true;
 
-  currentQuadrant = { lat, lng };
+  currentBound = { lat, lng };
 
   let statusMsg = 'Iniciando...';
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -271,10 +271,10 @@ async function iteration(conn: SafeConnection, searchQuery: string, current: num
     await conn.execute('UPDATE cuadrantes SET in_progress = 0 WHERE lat = ? AND lng = ?', [lat, lng]);
   } finally {
     stopSpinner();
-    if (currentQuadrant) {
+    if (currentBound) {
       await conn.execute('UPDATE cuadrantes SET in_progress = 0 WHERE lat = ? AND lng = ?', [lat, lng]).catch(() => {});
     }
-    currentQuadrant = null;
+    currentBound = null;
   }
 
   return true;

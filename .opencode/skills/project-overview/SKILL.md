@@ -68,7 +68,7 @@ All versions are minimal-bound (e.g. `"0.9"` = `^0.9`). Cargo resolves the lates
 | `types.rs` | Data structures: `Tintoreria`, `SearchConfig`, `DbConfig`, `IterationStats` |
 | `progress.rs` | `ProgressReporter` trait + `NoopProgress` impl |
 | `scrapper.rs` | `buscar()` — navigate GMaps, accept cookies, scrape feed or single result |
-| `generator/` | `Border::generate_grid()` — generate quadrant grid from Spain border GeoJSON |
+| `generator/` | `Border::generate_grid()` — generate bound grid from Spain border GeoJSON |
 
 ## Convention notes
 

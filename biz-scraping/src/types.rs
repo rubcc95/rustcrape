@@ -1,40 +1,77 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tintoreria {
-    pub nombre: String,
+pub struct Coincidence {
+    pub name: String,
     pub email: Option<String>,
     pub web: Option<String>,
     pub tfno: Option<String>,
     pub maps_url: String,
 }
-
-#[derive(Debug, Clone)]
-pub struct SearchConfig {
-    pub lat: f64,
-    pub lng: f64,
-    pub zoom: u32,
-    pub stop_threshold: u32,
-    pub search_query: String,
-    pub delay_min: u64,
-    pub delay_max: u64,
+ 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub search: SearchConfig,
+    pub rate_limit: u32,
+    pub iterations: u32,
+    pub db: DbConfig,
+    pub nordvpn_path: Option<String>,
+    pub ip_rotation_frequency: u32,
 }
 
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self {
-            lat: 40.4168,
-            lng: -3.7038,
-            zoom: 12,
-            stop_threshold: 3,
-            search_query: String::new(),
-            delay_min: 500,
-            delay_max: 2000,
-        }
+impl std::ops::Deref for Config {
+    type Target = SearchConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.search
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchConfig {
+    pub persistent: PersistentConfig,
+    pub stop_threshold: u32,
+    pub delay_min: u64,
+    pub delay_max: u64,
+    pub headless: bool,
+}
+
+impl std::ops::Deref for SearchConfig{
+    type Target = PersistentConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.persistent
+    }
+}
+
+impl std::ops::DerefMut for SearchConfig{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.persistent
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistentConfig{
+    pub zoom: u32,
+    pub search_query: String,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct SearchContext<'a> {
+    pub lat: f32,
+    pub lng: f32,
+    pub config: &'a SearchConfig,
+}
+
+impl std::ops::Deref for SearchContext<'_> {
+    type Target = SearchConfig;
+
+    fn deref(&self) -> &Self::Target {
+        self.config
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbConfig {
     pub host: String,
     pub port: u16,
@@ -43,10 +80,10 @@ pub struct DbConfig {
     pub database: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IterationStats {
-    pub encontrados: u64,
-    pub insertados: u64,
-    pub duplicados: u64,
-    pub sin_datos: u64,
+    pub encountered: u64,
+    pub inserted: u64,
+    pub duplicated: u64,
+    pub empty: u64,
 }

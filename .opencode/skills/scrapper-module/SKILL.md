@@ -101,7 +101,7 @@ The scrapper requires a real Chrome/Chromium instance. No unit tests exist yet
 // In a binary crate (future CLI):
 let (browser, mut handler) = Browser::launch(config).await?;
 tokio::spawn(async move { while let Some(_) = handler.next().await {} });
-let results = buscar(&browser, &config, &NoopProgress).await?;
+let coincidences = search(&browser, &config, &NoopProgress).await?;
 ```
 
 ## Legacy comparison

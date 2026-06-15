@@ -132,7 +132,9 @@ export async function buscar(config: SearchConfig, onStatus?: (msg: string) => v
     );
     onStatus?.('Aceptando cookies...');
     await page.waitForSelector('button:has-text("Aceptar todo")', { timeout: 10000 });
+    onStatus?.('Botón Aceptar todo encontrado');
     await page.getByRole('button', { name: /aceptar todo/i }).click();
+    onStatus?.('Selector found...');
     await page.waitForURL(/.*google\.com\/maps.*/, { timeout: 10000 });
 
     onStatus?.('Buscando resultados...');

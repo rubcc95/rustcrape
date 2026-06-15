@@ -15,7 +15,7 @@ description: >-
 
 ```rust
 pub struct Tintoreria {
-    pub nombre: String,           // Business name
+    pub name: String,           // Business name
     pub email: Option<String>,     // Email address (None if not found)
     pub web: Option<String>,       // Website URL (None if not found)
     pub tfno: Option<String>,      // Phone number (None if not found)
@@ -30,10 +30,10 @@ pub struct Tintoreria {
 
 ```rust
 pub struct SearchConfig {
-    pub lat: f64,               // Quadrant center latitude
-    pub lng: f64,               // Quadrant center longitude
+    pub lat: f64,               // Bound center latitude
+    pub lng: f64,               // Bound center longitude
     pub zoom: u32,              // Map zoom level (affects initial view)
-    pub stop_threshold: u32,    // Consecutive out-of-range results before stopping
+    pub stop_threshold: u32,    // Consecutive out-of-range coincidences before stopping
     pub search_query: String,    // e.g. "tintorerías" or "dry cleaners"
     pub delay_min: u64,         // Min delay between scrolls (ms)
     pub delay_max: u64,         // Max delay between scrolls (ms)
@@ -56,14 +56,14 @@ pub struct DbConfig {
 }
 ```
 
-### IterationStats (per-quadrant scraping stats)
+### IterationStats (per-bound scraping stats)
 
 ```rust
 pub struct IterationStats {
-    pub encontrados: u64,   // Total results with some data found
+    pub encontrados: u64,   // Total coincidences with some data found
     pub insertados: u64,    // Successfully inserted (non-duplicate)
     pub duplicados: u64,    // Skipped (UNIQUE constraint)
-    pub sin_datos: u64,    // Results with no email, web, or phone
+    pub sin_datos: u64,    // Coincidences with no email, web, or phone
 }
 ```
 
@@ -77,8 +77,8 @@ Implements `Default` (all zeros).
 pub trait ProgressReporter: Send + Sync {
     fn on_status(&self, status: &str) {}
     fn on_error(&self, error: &str) {}
-    fn on_quadrant_progress(&self, current: usize, total: usize, lat: f64, lng: f64, msg: &str) {}
-    fn on_quadrant_complete(&self, current: usize, total: usize, lat: f64, lng: f64, count: usize) {}
+    fn on_bound_progress(&self, current: usize, total: usize, lat: f64, lng: f64, msg: &str) {}
+    fn on_bound_complete(&self, current: usize, total: usize, lat: f64, lng: f64, count: usize) {}
 }
 ```
 
@@ -90,7 +90,7 @@ Typical status strings from `scrapper.rs`:
 - "Aceptando cookies..."
 - "Buscando resultados..."
 - "Cargando mas resultados..."
-- "Procesando {nombre}..."
+- "Procesando {name}..."
 - "Error extrayendo resultado: {error}"
 
 ### NoopProgress (no-op implementation)
