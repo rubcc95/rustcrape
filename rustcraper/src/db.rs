@@ -148,19 +148,22 @@ pub(crate) trait DbUtility {
     async fn write_coincidences(
         &mut self,
         data: impl IntoIterator<Item = Coincidence>,
-    ) -> Result<MySqlQueryResult> {
+    ) -> Result<MySqlQueryResult> {        
+        let filtered: Vec<Coincidence> = data
+            .into_iter()
+            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
+            .collect();
+        if filtered.is_empty() {
+            return Ok(MySqlQueryResult::default());
+        }        
         let mut builder =
-            sqlx::QueryBuilder::new("INSERT IGNORE INTO coincidences (name, web, email,  tfno) ");
-        builder.push_values(
-            data.into_iter()
-                .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some()),
-            |mut b, c| {
-                b.push_bind(c.name);
-                b.push_bind(c.web.unwrap_or_default());
-                b.push_bind(c.email.unwrap_or_default());
-                b.push_bind(c.tfno.unwrap_or_default());
-            },
-        );
+            sqlx::QueryBuilder::new("INSERT IGNORE INTO coincidences (name, web, email, tfno) ");
+        builder.push_values(filtered, |mut b, c| {
+            b.push_bind(c.name);
+            b.push_bind(c.web.unwrap_or_default());
+            b.push_bind(c.email.unwrap_or_default());
+            b.push_bind(c.tfno.unwrap_or_default());
+        });
         Ok(builder.build().execute(self.as_executor()).await?)
     }
 }
