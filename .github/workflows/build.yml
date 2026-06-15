@@ -26,14 +26,14 @@ jobs:
           cache: npm
           cache-dependency-path: rustcraper-gui/package-lock.json
 
-      - name: Cache Cargo dependencies
+      - name: Cache Cargo dependencies + incremental compilation
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            /target
-          key: cargo-windows-${{ hashFiles('rustcraper-gui/src-tauri/Cargo.lock') }}
+            target
+          key: cargo-windows-${{ hashFiles('Cargo.lock') }}
 
       - name: Install frontend dependencies
         run: npm ci
