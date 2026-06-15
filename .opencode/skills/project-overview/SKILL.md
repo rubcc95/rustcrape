@@ -1,21 +1,21 @@
 ---
 name: project-overview
 description: >-
-  Use when you need a high-level understanding of the rustcraper project,
+  Use when you need a high-level understanding of the rustcrape project,
   its workspace layout, architectural decisions, or file structure.
   Use when you need to know how modules are organized, what dependencies are
   used, or what conventions to follow. Do NOT use for detailed implementation
   of a specific module — use scrapper-module, generator-module, or core-types instead.
 ---
 
-# rustcraper — Project Overview
+# rustcrape — Project Overview
 
 ## Workspace layout
 
 ```
-rustcraper/
+rustcrape/
 ├── Cargo.toml                          # Workspace root
-├── rustcraper/                       # Core library crate
+├── rustcrape/                       # Core library crate
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs                      # Module declarations
@@ -25,7 +25,7 @@ rustcraper/
 │       └── generator/                  # Grid generation module
 │           ├── mod.rs                  # Border struct + generate_grid()
 │           └── spain_border.rs         # Spain border GeoJSON as Rust const
-├── rustcraper-gui/                   # Tauri GUI (future crate)
+├── rustcrape-gui/                   # Tauri GUI (future crate)
 │   └── src-tauri/
 │       └── Cargo.toml
 └── legacy/                             # Original TypeScript/Playwright codebase
@@ -42,11 +42,11 @@ rustcraper/
 | Progress reporting | Trait-based (`ProgressReporter`), usable by CLI and GUI |
 | Browser lifecycle | Passed as argument — core lib does NOT launch browsers |
 
-## Cargo.toml (rustcraper)
+## Cargo.toml (rustcrape)
 
 ```toml
 [package]
-name = "rustcraper"
+name = "rustcrape"
 version = "0.1.0"
 edition = "2024"
 

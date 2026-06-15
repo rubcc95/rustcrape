@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "rustcraper",
-    "rustcraper-gui/src-tauri",
+    "rustcrape",
+    "rustcrape-gui/src-tauri",
 ]
 resolver = "2"

@@ -1,7 +1,7 @@
 ---
 name: generator-module
 description: >-
-  Use when working on the grid generator at rustcraper/src/generator/.
+  Use when working on the grid generator at rustcrape/src/generator/.
   Covers the Border struct, generate_grid algorithm, Spain border GeoJSON
   constants, point-in-polygon testing, and bound grid logic.
   NOT for the scraper or shared types.
@@ -10,8 +10,8 @@ description: >-
 # Generator Module
 
 Files:
-- `rustcraper/src/generator/mod.rs` — `Border` struct + grid generation
-- `rustcraper/src/generator/spain_border.rs` — Spain border vertices + polygon indices
+- `rustcrape/src/generator/mod.rs` — `Border` struct + grid generation
+- `rustcrape/src/generator/spain_border.rs` — Spain border vertices + polygon indices
 
 ## Border struct
 
@@ -89,7 +89,7 @@ fn test_generate_grid_zoom_12() {
 }
 ```
 
-Run with: `cargo test -p rustcraper -- generator`
+Run with: `cargo test -p rustcrape -- generator`
 
 The test currently takes ~20s for zoom=12 (realistic: ~4000+ cells).
 

@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [chromiumoxide]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: rustcraper-gui
+        working-directory: rustcrape-gui
 
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: rustcraper-gui/package-lock.json
+          cache-dependency-path: rustcrape-gui/package-lock.json
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -57,11 +57,11 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: Rustcraper-${{ runner.os }}-installers
+          name: Rustcrape-${{ runner.os }}-installers
           path: target/release/bundle/
 
       - name: Upload portable binary
         uses: actions/upload-artifact@v4
         with:
-          name: Rustcraper-${{ runner.os }}-portable
-          path: target/release/rustcraper-gui${{ runner.os == 'Windows' && '.exe' || '' }}
+          name: Rustcrape-${{ runner.os }}-portable
+          path: target/release/rustcrape-gui${{ runner.os == 'Windows' && '.exe' || '' }}

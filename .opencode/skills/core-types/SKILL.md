@@ -9,7 +9,7 @@ description: >-
 
 # Core Types & Progress Reporting
 
-## types.rs — `rustcraper/src/types.rs`
+## types.rs — `rustcrape/src/types.rs`
 
 ### Tintoreria (scraped business data)
 
@@ -69,7 +69,7 @@ pub struct IterationStats {
 
 Implements `Default` (all zeros).
 
-## progress.rs — `rustcraper/src/progress.rs`
+## progress.rs — `rustcrape/src/progress.rs`
 
 ### ProgressReporter trait
 

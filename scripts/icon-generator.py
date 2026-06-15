@@ -63,7 +63,7 @@ svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg"
 </svg>
 """
 
-svg_file = "rustcraper_icon.svg"
+svg_file = "rustcrape_icon.svg"
 with open(svg_file, "w") as f:
     f.write(svg_content)
 
