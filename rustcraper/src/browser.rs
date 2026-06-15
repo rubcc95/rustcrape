@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::{Context, Result};
 use chromiumoxide::handler::viewport::Viewport;
 use chromiumoxide::{Browser as COxideBrowser, BrowserConfig};
@@ -33,6 +35,74 @@ fn rand_range(min: usize, max: usize) -> usize {
     rng.gen_range(min..=max)
 }
 
+/// Busca un navegador Chromium disponible en el sistema.
+/// Prioridad: Chrome > Edge.
+fn find_browser() -> Option<PathBuf> {
+    // 1. Variable de entorno CHROME
+    if let Ok(path) = std::env::var("CHROME") {
+        let p = PathBuf::from(path);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+
+    // 2. Rutas habituales segun plataforma
+    #[cfg(windows)]
+    {
+        let pf = std::env::var("ProgramFiles").ok();
+        let pf86 = std::env::var("ProgramFiles(x86)").ok();
+        let local = std::env::var("LOCALAPPDATA").ok();
+
+        let candidates = [
+            pf.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            pf86.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            local.as_ref().map(|p| PathBuf::from(p).join(r"Google\Chrome\Application\chrome.exe")),
+            pf.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+            pf86.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+            local.as_ref().map(|p| PathBuf::from(p).join(r"Microsoft\Edge\Application\msedge.exe")),
+        ];
+
+        for c in candidates.into_iter().flatten() {
+            if c.is_file() {
+                return Some(c);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let candidates = [
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+        ];
+        for c in candidates {
+            let p = PathBuf::from(c);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ];
+        for c in candidates {
+            let p = PathBuf::from(c);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+
+    None
+}
+
 pub struct Browser {
     browser: COxideBrowser,
 }
@@ -56,13 +126,20 @@ impl Browser {
             builder = builder.with_head();
         }
 
-        let config = builder
-            .build()
-            .map_err(|e| anyhow::anyhow!("failed to build browser config: {}", e))?;
+        if let Some(path) = find_browser() {
+            builder = builder.chrome_executable(path);
+        }
+
+        let config = builder.build().map_err(|_| {
+            anyhow::anyhow!(
+                "No se encontro Chrome ni Edge instalado.\n\
+                 Instala Google Chrome o Microsoft Edge, o define la variable CHROME."
+            )
+        })?;
 
         let (browser, mut handler) = COxideBrowser::launch(config)
             .await
-            .context("failed to launch chromium browser")?;
+            .context("error al lanzar el navegador")?;
 
         tokio::spawn(async move {
             let handler_loop = async move {
