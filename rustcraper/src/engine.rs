@@ -163,7 +163,7 @@ mod tests {
                 port: 3306,
                 user: "biz_user".to_string(),
                 password: "biz_pass".to_string(),
-                database: "biz_scraping".to_string(),
+                database: "rustcraper".to_string(),
             },
             nordvpn_path: None,
             ip_rotation_frequency: 0,

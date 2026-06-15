@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use biz_scraping::types::Coincidence;
+use rustcraper::types::Coincidence;
 use serde::Serialize;
 use tauri::Emitter;
 
@@ -35,7 +35,7 @@ impl TauriVerboser {
     }
 }
 
-impl biz_scraping::verboser::Verboser for TauriVerboser {
+impl rustcraper::verboser::Verboser for TauriVerboser {
     fn generating_bounds(&self, checked: usize, valid: usize, total: usize) {
         self.emit(
             "generating_bounds",

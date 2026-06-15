@@ -11,7 +11,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: biz-scraping-gui
+        working-directory: rustcraper-gui
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: biz-scraping-gui/package-lock.json
+          cache-dependency-path: rustcraper-gui/package-lock.json
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -32,20 +32,23 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            biz-scraping-gui/src-tauri/target
-          key: cargo-windows-${{ hashFiles('biz-scraping-gui/src-tauri/Cargo.lock') }}
+            /target
+          key: cargo-windows-${{ hashFiles('rustcraper-gui/src-tauri/Cargo.lock') }}
 
       - name: Install frontend dependencies
         run: npm ci
 
       - name: Build Tauri app
         run: npx tauri build
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
-      - name: Upload artifacts
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: BizScraping-Windows
-          path: biz-scraping-gui/src-tauri/target/release/bundle/
+          name: Rustcraper-Windows-installers
+          path: target/release/bundle/
+
+      - name: Upload portable exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rustcraper-Windows-portable
+          path: target/release/rustcraper-gui.exe

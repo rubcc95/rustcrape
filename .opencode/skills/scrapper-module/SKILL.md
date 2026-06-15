@@ -1,7 +1,7 @@
 ---
 name: scrapper-module
 description: >-
-  Use when working on biz-scraping/src/scrapper.rs — the Google Maps scraper
+  Use when working on rustcraper/src/scrapper.rs — the Google Maps scraper
   using chromiumoxide. Covers the buscar() function signature, feed scraping
   loop, anti-detection, data extraction via JS evaluation, and chromiumoxide
   API patterns. Use when you need to modify scraping logic, add new selectors,
@@ -11,7 +11,7 @@ description: >-
 
 # Scrapper Module
 
-File: `biz-scraping/src/scrapper.rs`
+File: `rustcraper/src/scrapper.rs`
 
 ## Public API
 

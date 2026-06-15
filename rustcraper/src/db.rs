@@ -232,7 +232,7 @@ trait DbUtilityExt: DbUtility{
 
         let bounds_ok = existing.contains("bounds");
         let coincidences_ok = existing.contains("coincidences");
-        let config_ok = existing.contains("configuration_biz_scraping");
+        let config_ok = existing.contains("configuration_rustcraper");
 
         if bounds_ok && coincidences_ok && config_ok {
             self.validate_bounds(&config.database).await?;
@@ -241,11 +241,11 @@ trait DbUtilityExt: DbUtility{
             self.ensure_bound_columns(&config.database).await?;
 
             let config_row = sqlx::query(
-                "SELECT search_query, zoom FROM configuration_biz_scraping WHERE id = 1",
+                "SELECT search_query, zoom FROM configuration_rustcraper WHERE id = 1",
             )
             .fetch_optional(self.as_executor())
             .await?
-            .ok_or_else(|| anyhow::anyhow!("configuration_biz_scraping table is empty"))?;
+            .ok_or_else(|| anyhow::anyhow!("configuration_rustcraper table is empty"))?;
             params.search_query = config_row.get("search_query");
             params.zoom = config_row.get("zoom");
             eprintln!(
@@ -262,7 +262,7 @@ trait DbUtilityExt: DbUtility{
             for (name, ok) in [
                 ("bounds", bounds_ok),
                 ("coincidences", coincidences_ok),
-                ("configuration_biz_scraping", config_ok),
+                ("configuration_rustcraper", config_ok),
             ] {
                 if ok {
                     present.push(name);
@@ -278,7 +278,7 @@ trait DbUtilityExt: DbUtility{
         }
 
         anyhow::bail!(
-            "La base de datos '{}' contiene tablas inesperadas ({}). Se esperaba una base de datos vacía o con las tablas biz-scraping.",
+            "La base de datos '{}' contiene tablas inesperadas ({}). Se esperaba una base de datos vacía o con las tablas rustcraper.",
             config.database,
             existing.iter().cloned().collect::<Vec<_>>().join(", ")
         );
@@ -318,7 +318,7 @@ trait DbUtilityExt: DbUtility{
         .await?;
 
         self.exec(
-            "CREATE TABLE IF NOT EXISTS configuration_biz_scraping (
+            "CREATE TABLE IF NOT EXISTS configuration_rustcraper (
             id INT PRIMARY KEY DEFAULT 1,
             search_query VARCHAR(255) NOT NULL,
             zoom INT UNSIGNED NOT NULL,
@@ -328,7 +328,7 @@ trait DbUtilityExt: DbUtility{
         )
         .await?;
 
-        sqlx::query("INSERT INTO configuration_biz_scraping (id, search_query, zoom, version) VALUES (1, ?, ?, 1)")
+        sqlx::query("INSERT INTO configuration_rustcraper (id, search_query, zoom, version) VALUES (1, ?, ?, 1)")
             .bind(&params.search_query)
             .bind(params.zoom as i32)
             .execute(self.as_executor())
@@ -441,7 +441,7 @@ mod tests {
             port: 3306,
             user: "biz_user".to_string(),
             password: "biz_pass".to_string(),
-            database: "biz_scraping".to_string(),
+            database: "rustcraper".to_string(),
         }
     }
 

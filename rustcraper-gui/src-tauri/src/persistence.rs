@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use biz_scraping::types::Config;
+use rustcraper::types::Config;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

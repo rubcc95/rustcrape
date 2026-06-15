@@ -142,7 +142,7 @@ function resetForm(): void {
   iterations.value = "0";
   dbHost.value = "localhost";
   dbPort.value = "3306";
-  dbDatabase.value = "biz_scraping";
+  dbDatabase.value = "rustcraper";
   dbUser.value = "root";
   dbPassword.value = "";
   nordvpnPath.value = "";
@@ -387,10 +387,6 @@ runBtn.addEventListener("click", async () => {
 
     const promise = invoke("run_scraping", { config });
     promise.catch((e: unknown) => appendLog("error", `Error: ${e}`));
-    promise.finally(() => {
-      isRunning = false;
-      updateUI();
-    });
     appendLog("info", "Scraping lanzado");
   } catch (err) {
     isRunning = false;
@@ -436,6 +432,19 @@ async function setupVerboserListener(): Promise<void> {
   if (unlisten) unlisten();
   unlisten = await listen<VerboserPayload>("verboser-event", (event) => {
     appendLog(event.payload.kind, event.payload.message);
+  });
+}
+
+// Set up event listeners for execution state
+async function setupExecutionListeners(): Promise<void> {
+  await listen("scraping-started", () => {
+    isRunning = true;
+    updateUI();
+  });
+
+  await listen("scraping-finished", () => {
+    isRunning = false;
+    updateUI();
   });
 }
 
@@ -496,10 +505,62 @@ function setupWindowControls(): void {
   });
 }
 
+// ── Custom number spinners ──
+function setupNumberSpinners(): void {
+  document.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach((input) => {
+    if (input.parentElement?.classList.contains("number-wrap")) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "number-wrap";
+    const btns = document.createElement("div");
+    btns.className = "number-btns";
+
+    const up = document.createElement("button");
+    up.className = "num-btn";
+    up.type = "button";
+    up.tabIndex = -1;
+    up.textContent = "\u25B2";
+    up.addEventListener("click", () => stepInput(input, 1));
+
+    const down = document.createElement("button");
+    down.className = "num-btn";
+    down.type = "button";
+    down.tabIndex = -1;
+    down.textContent = "\u25BC";
+    down.addEventListener("click", () => stepInput(input, -1));
+
+    btns.appendChild(up);
+    btns.appendChild(down);
+    input.parentNode!.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    wrapper.appendChild(btns);
+  });
+}
+
+function stepInput(input: HTMLInputElement, dir: 1 | -1): void {
+  const step = parseFloat(input.getAttribute("step") || "1");
+  const min = input.hasAttribute("min")
+    ? parseFloat(input.getAttribute("min")!)
+    : -Infinity;
+  const max = input.hasAttribute("max")
+    ? parseFloat(input.getAttribute("max")!)
+    : Infinity;
+  const val = parseFloat(input.value) || 0;
+  let newVal = val + step * dir;
+  if (Number.isInteger(step)) newVal = Math.round(newVal);
+  newVal = Math.max(min, Math.min(max, newVal));
+  if (newVal !== val) {
+    input.value = String(newVal);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
 // Init
 async function init(): Promise<void> {
   setupWindowControls();
+  setupNumberSpinners();
   await setupVerboserListener();
+  await setupExecutionListeners();
   await loadProjectList();
   await loadLastSelected();
   updateUI();

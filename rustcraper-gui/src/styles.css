@@ -524,3 +524,70 @@ button.btn-danger.disabled:hover {
   padding: 8px 20px;
   font-size: 13px;
 }
+
+/* ── Custom number spinners ── */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.number-wrap {
+  display: flex;
+  align-items: stretch;
+}
+
+.number-wrap input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+
+.number-btns {
+  display: flex;
+  flex-direction: column;
+  width: 24px;
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.num-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 7px;
+  line-height: 1;
+  min-height: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.num-btn:hover {
+  background: var(--sidebar-bg);
+  color: var(--text);
+}
+
+.num-btn:active {
+  background: var(--border);
+  transform: none;
+}
+
+.num-btn + .num-btn {
+  border-top: 1px solid var(--border);
+}

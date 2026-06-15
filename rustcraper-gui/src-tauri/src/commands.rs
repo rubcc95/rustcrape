@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use biz_scraping::types::Config;
-use tauri::{AppHandle, State};
+use rustcraper::types::Config;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::persistence::{ConfigStore, SavedConfig};
-use crate::verboser::TauriVerboser;
+use crate::verboser::{TauriVerboser, VerboserPayload};
 
 pub struct AppState {
     pub store: Mutex<ConfigStore>,
@@ -115,19 +115,27 @@ pub async fn run_scraping(
 
     state.cancel_flag.store(false, Ordering::SeqCst);
     let cancel_flag = state.cancel_flag.clone();
+    let app_handle = app.clone();
 
     let future = SpawnUnsafe(async move {
+        app_handle.emit("scraping-started", ()).ok();
         let verboser = TauriVerboser::new(app, cancel_flag);
-        match biz_scraping::engine::run(config, verboser).await{
-            Ok(()) => {
-                // Scraping completed, frontend must
-            },
-            Err(err) => todo!(),
+        if let Err(e) = rustcraper::engine::run(config, verboser).await {
+            app_handle
+                .emit(
+                    "verboser-event",
+                    VerboserPayload {
+                        kind: "error".to_string(),
+                        message: format!("Error durante scraping: {e}"),
+                    },
+                )
+                .ok();
         }
+        app_handle.emit("scraping-finished", ()).ok();
     });
 
     tauri::async_runtime::spawn(future);
-
+ 
     Ok(())
 }
 

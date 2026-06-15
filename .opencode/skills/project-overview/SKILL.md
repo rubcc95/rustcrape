@@ -1,21 +1,21 @@
 ---
 name: project-overview
 description: >-
-  Use when you need a high-level understanding of the biz-scraping project,
+  Use when you need a high-level understanding of the rustcraper project,
   its workspace layout, architectural decisions, or file structure.
   Use when you need to know how modules are organized, what dependencies are
   used, or what conventions to follow. Do NOT use for detailed implementation
   of a specific module — use scrapper-module, generator-module, or core-types instead.
 ---
 
-# biz-scraping — Project Overview
+# rustcraper — Project Overview
 
 ## Workspace layout
 
 ```
-biz-scraping/
+rustcraper/
 ├── Cargo.toml                          # Workspace root
-├── biz-scraping/                       # Core library crate
+├── rustcraper/                       # Core library crate
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs                      # Module declarations
@@ -25,7 +25,7 @@ biz-scraping/
 │       └── generator/                  # Grid generation module
 │           ├── mod.rs                  # Border struct + generate_grid()
 │           └── spain_border.rs         # Spain border GeoJSON as Rust const
-├── biz-scraping-gui/                   # Tauri GUI (future crate)
+├── rustcraper-gui/                   # Tauri GUI (future crate)
 │   └── src-tauri/
 │       └── Cargo.toml
 └── legacy/                             # Original TypeScript/Playwright codebase
@@ -42,11 +42,11 @@ biz-scraping/
 | Progress reporting | Trait-based (`ProgressReporter`), usable by CLI and GUI |
 | Browser lifecycle | Passed as argument — core lib does NOT launch browsers |
 
-## Cargo.toml (biz-scraping)
+## Cargo.toml (rustcraper)
 
 ```toml
 [package]
-name = "biz-scraping"
+name = "rustcraper"
 version = "0.1.0"
 edition = "2024"
 

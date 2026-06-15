@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "biz-scraping-gui",
+  "productName": "rustcraper-gui",
   "version": "0.1.0",
-  "identifier": "com.hagans.biz-scraping",
+  "identifier": "com.hagans.rustcraper",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "biz-scraping",
+        "title": "rustcraper",
         "width": 1100,
         "height": 750,
         "minWidth": 900,
