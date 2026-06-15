@@ -10,6 +10,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let store = ConfigStore::new(app_data_dir).expect("failed to init config store");
@@ -24,6 +25,7 @@ pub fn run() {
             commands::set_last_selected,
             commands::run_scraping,
             commands::cancel_scraping,
+            commands::pick_executable,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

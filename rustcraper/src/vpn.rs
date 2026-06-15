@@ -1,10 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tokio::process::Command;
 
 use crate::verboser::Verboser;
-
-const NORDVPN_EXE: &str = "nordvpn.exe";
 
 const VPN_COUNTRIES: &[&str] = &[
     "Spain",
@@ -35,21 +33,16 @@ fn random_country() -> &'static str {
     VPN_COUNTRIES[idx]
 }
 
-fn resolve_exe(nordvpn_path: &Path) -> PathBuf {
-    nordvpn_path.join(NORDVPN_EXE)
-}
-
 pub fn nordvpn_available(nordvpn_path: &Path) -> bool {
-    resolve_exe(nordvpn_path).exists()
+    nordvpn_path.exists()
 }
 
 pub async fn rotate_vpn(nordvpn_path: &Path, verboser: &impl Verboser) {
     verboser.vpn_rotating();
-    let exe = resolve_exe(nordvpn_path);
 
-    let _ = Command::new(&exe).arg("-d").kill_on_drop(true).status().await;
+    let _ = Command::new(nordvpn_path).arg("-d").kill_on_drop(true).status().await;
 
-    let _ = Command::new(&exe)
+    let _ = Command::new(nordvpn_path)
         .args(["-c", "-g", random_country()])
         .kill_on_drop(true)
         .status()

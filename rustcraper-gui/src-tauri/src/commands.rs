@@ -1,8 +1,10 @@
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rustcraper::types::Config;
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::persistence::{ConfigStore, SavedConfig};
 use crate::verboser::{TauriVerboser, VerboserPayload};
@@ -135,7 +137,7 @@ pub async fn run_scraping(
     });
 
     tauri::async_runtime::spawn(future);
- 
+
     Ok(())
 }
 
@@ -144,3 +146,57 @@ pub fn cancel_scraping(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_flag.store(true, Ordering::SeqCst);
     Ok(())
 }
+
+#[tauri::command]
+pub async fn pick_executable(app: AppHandle) -> Result<(), String> {
+    let dialog = app.dialog().file();
+
+    #[cfg(windows)]
+    {
+        dialog = dialog.add_filter("exe", &["exe"]);
+    }
+
+    dialog.pick_file(move |file| {
+        fn is_exe(file: Option<FilePath>) -> Option<String> {
+            if let Some(file) = file {
+                if let Some(path) = file.as_path() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        if !std::fs::metadata(path)
+                            .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+                        {
+                            return None;
+                        }
+                    }
+                    return Some(path.to_string_lossy().to_string());
+                }
+            }
+            None
+        }
+        
+        let exe_path = is_exe(file);
+        app.emit("executable-picked", exe_path).ok();
+    });
+
+    Ok(())
+}
+
+// fn is_executable(path: &Path) -> bool {
+//     if !path.is_file() {
+//         return false;
+//     }
+//     #[cfg(unix)]
+//     {
+//         use std::os::unix::fs::PermissionsExt;
+//         std::fs::metadata(path)
+//             .map(|m| m.permissions().mode() & 0o111 != 0)
+//             .unwrap_or(false)
+//     }
+//     #[cfg(not(unix))]
+//     {
+//         path.extension()
+//             .and_then(|ext| ext.to_str())
+//             .is_some_and(|ext| matches!(ext.to_lowercase().as_str(), "exe" | "com" | "bat" | "cmd"))
+//     }
+// }

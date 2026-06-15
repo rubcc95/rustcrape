@@ -50,6 +50,7 @@ let currentStarted: boolean = false;
 let isRunning: boolean = false;
 let unlisten: UnlistenFn | null = null;
 let savedConfigSnapshot: { name: string; config: Config } | null = null;
+let nordvpnPathValue: string | null = null;
 const projectLogs = new Map<string, string>();
 
 // DOM refs
@@ -103,7 +104,7 @@ function readForm(): Config {
       password: dbPassword.value,
       database: dbDatabase.value,
     },
-    nordvpn_path: nordvpnPath.value || null,
+    nordvpn_path: nordvpnPathValue,
     ip_rotation_frequency: parseInt(ipRotationFrequency.value) || 0,
   };
 }
@@ -122,6 +123,7 @@ function fillForm(config: Config): void {
   dbDatabase.value = config.db.database;
   dbUser.value = config.db.user;
   dbPassword.value = config.db.password;
+  nordvpnPathValue = config.nordvpn_path || null;
   nordvpnPath.value = config.nordvpn_path || "";
   ipRotationFrequency.value = config.ip_rotation_frequency.toString();
   updateSnapshot(projectName.value, config);
@@ -145,6 +147,7 @@ function resetForm(): void {
   dbDatabase.value = "rustcraper";
   dbUser.value = "root";
   dbPassword.value = "";
+  nordvpnPathValue = null;
   nordvpnPath.value = "";
   ipRotationFrequency.value = "0";
   projectLogOutput.innerHTML = "";
@@ -453,6 +456,22 @@ form.addEventListener("input", () => {
   updateUI();
 });
 
+// ── File picker for NordVPN ──
+nordvpnPath.addEventListener("click", () => {
+  invoke("pick_executable");
+});
+
+async function setupExecutablePicker(): Promise<void> {
+  await listen<string | null>("executable-picked", (event) => {
+    const selected = event.payload;
+    if (selected) {
+      nordvpnPath.value = selected;
+      nordvpnPathValue = selected;
+      updateUI();
+    }
+  });
+}
+
 // ── Window controls ──
 function setupWindowControls(): void {
   const appWindow = getCurrentWindow();
@@ -561,6 +580,7 @@ async function init(): Promise<void> {
   setupNumberSpinners();
   await setupVerboserListener();
   await setupExecutionListeners();
+  await setupExecutablePicker();
   await loadProjectList();
   await loadLastSelected();
   updateUI();

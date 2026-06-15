@@ -293,6 +293,11 @@ legend {
   color: var(--text-muted);
 }
 
+input[type="text"][readonly] {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
 .actions {
   display: flex;
   gap: 8px;
