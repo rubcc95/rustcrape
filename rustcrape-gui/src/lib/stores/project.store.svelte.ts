@@ -3,6 +3,7 @@ import type {
   ExecutionConfig,
   ProjectDraft,
   Config,
+  DbConfig,
 } from "../types";
 import {
   listConfigs,
@@ -27,8 +28,9 @@ class ProjectStore {
   });
   projectDraft = $state<ProjectDraft>({
     name: "",
-    search_query: "tintorerías",
+    search_query: "",
     zoom: 12,
+    use_mysql: false,
     db_host: "localhost",
     db_port: 3306,
     db_database: "rustcrape",
@@ -42,6 +44,16 @@ class ProjectStore {
 
   buildConfig(): Config {
     const gs = appStore.globalSettings;
+    const db: DbConfig = this.projectDraft.use_mysql
+      ? {
+          type: "mysql",
+          host: this.projectDraft.db_host,
+          port: this.projectDraft.db_port,
+          user: this.projectDraft.db_user,
+          password: this.projectDraft.db_password,
+          database: this.projectDraft.db_database,
+        }
+      : { type: "sqlite" };
     return {
       search: {
         persistent: {
@@ -55,13 +67,7 @@ class ProjectStore {
       },
       rate_limit: this.executionConfig.rate_limit,
       iterations: this.executionConfig.iterations,
-      db: {
-        host: this.projectDraft.db_host,
-        port: this.projectDraft.db_port,
-        user: this.projectDraft.db_user,
-        password: this.projectDraft.db_password,
-        database: this.projectDraft.db_database,
-      },
+      db,
       nordvpn_path: this.executionConfig.use_vpn
         ? gs.nordvpn_path
         : null,
@@ -85,15 +91,17 @@ class ProjectStore {
       ip_rotation_frequency: c.ip_rotation_frequency,
       headless: c.search.headless,
     };
+    const useMysql = c.db.type === "mysql";
     this.projectDraft = {
       name: project.name,
       search_query: c.search.persistent.search_query,
       zoom: c.search.persistent.zoom,
-      db_host: c.db.host,
-      db_port: c.db.port,
-      db_database: c.db.database,
-      db_user: c.db.user,
-      db_password: c.db.password,
+      use_mysql: useMysql,
+      db_host: useMysql ? c.db.host : "localhost",
+      db_port: useMysql ? c.db.port : 3306,
+      db_database: useMysql ? c.db.database : "rustcrape",
+      db_user: useMysql ? c.db.user : "root",
+      db_password: useMysql ? c.db.password : "",
     };
   }
 
@@ -111,8 +119,9 @@ class ProjectStore {
     };
     this.projectDraft = {
       name: "",
-      search_query: "tintorerías",
+      search_query: "",
       zoom: 12,
+      use_mysql: false,
       db_host: "localhost",
       db_port: 3306,
       db_database: "rustcrape",

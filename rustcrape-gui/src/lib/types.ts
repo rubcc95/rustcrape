@@ -13,12 +13,16 @@ export interface SearchConfig {
   headless: boolean;
 }
 
-export interface DbConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  database: string;
+export type DbConfig =
+  | { type: "sqlite"; path?: string | null }
+  | { type: "mysql"; host: string; port: number; user: string; password: string; database: string };
+
+export function isMysql(db: DbConfig): db is { type: "mysql"; host: string; port: number; user: string; password: string; database: string } {
+  return db.type === "mysql";
+}
+
+export function isSqlite(db: DbConfig): db is { type: "sqlite"; path?: string | null } {
+  return db.type === "sqlite";
 }
 
 export interface Config {
@@ -86,6 +90,7 @@ export interface ProjectDraft {
   name: string;
   search_query: string;
   zoom: number;
+  use_mysql: boolean;
   db_host: string;
   db_port: number;
   db_database: string;

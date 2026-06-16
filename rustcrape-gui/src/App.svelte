@@ -38,11 +38,14 @@
 
 {#key appStore.currentRoute}
   {#if appStore.currentRoute === "settings"}
-    <div class="settings-layout">
-      <SubHeader />
-      <div class="scroll-area centered-body">
-        <SettingsView />
-      </div>
+    <div class="layout">
+      <Sidebar />
+      <main class="main-content">
+        <SubHeader />
+        <div class="scroll-area">
+          <SettingsView />
+        </div>
+      </main>
     </div>
   {:else if appStore.currentRoute === "project"}
     <div class="layout">
@@ -110,29 +113,17 @@
     padding-right: 24px;
   }
 
-  .scroll-area > :global(.project-view) {
+  .scroll-area > :global(.project-view),
+  .scroll-area > :global(.settings) {
     margin: auto;
   }
 
-  .settings-layout,
   .execution-layout {
     flex: 1;
     display: flex;
     flex-direction: column;
     padding: 20px 24px 0 24px;
     overflow: hidden;
-  }
-
-  .centered-body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .centered-body > :global(*) {
-    max-height: 100%;
-    overflow-y: auto;
   }
 
   .resize-handle {

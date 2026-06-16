@@ -1,24 +1,27 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rustcrape::types::Config;
+use rustcrape::types::{Config, DbConfig};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::persistence::{ConfigStore, GlobalSettings, SavedConfig};
-use crate::verboser::{TauriVerboser, VerboserPayload};
+use crate::verboser::TauriVerboser;
 
 pub struct AppState {
     pub store: Mutex<ConfigStore>,
     pub cancel_flag: Arc<AtomicBool>,
+    pub local_data_dir: PathBuf,
 }
 
 impl AppState {
-    pub fn new(store: ConfigStore) -> Self {
+    pub fn new(store: ConfigStore, local_data_dir: PathBuf) -> Self {
         Self {
             store: Mutex::new(store),
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            local_data_dir,
         }
     }
 }
@@ -80,7 +83,9 @@ pub fn save_global_settings(
     settings: GlobalSettings,
 ) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    store.save_global_settings(&settings).map_err(|e| e.to_string())
+    store
+        .save_global_settings(&settings)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -102,9 +107,7 @@ pub async fn run_scraping(
     ///
     /// | Reference in state machine | Type `T` | `T: Sync`? | Justification |
     /// |---|---|---|---|
-    /// | `&DbManager` | `DbManager` | Yes | Wrapper around `MySqlPool` (which is `Sync`) |
     /// | `&Path` | `Path` | Yes | Immutable data, inherently `Sync` |
-    /// | `&Pool<MySql>` | `MySqlPool` | Yes | Designed by sqlx for multithreaded use |
     ///
     /// All references are shared `&T` references (never `&mut T`), and there
     /// are no `Cell`, `RefCell`, `Rc`, or any other non-`Send` interior
@@ -134,20 +137,25 @@ pub async fn run_scraping(
     let cancel_flag = state.cancel_flag.clone();
     let app_handle = app.clone();
 
+    // Resolve SQLite default path to app_local_data_dir
+    let config = match config.db {
+        DbConfig::Sqlite { path: None } => {
+            let data_dir = state.local_data_dir.clone();
+            std::fs::create_dir_all(&data_dir).ok();
+            Config {
+                db: DbConfig::Sqlite {
+                    path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
+                },
+                ..config
+            }
+        }
+        _ => config,
+    };
+
     let future = SpawnUnsafe(async move {
         app_handle.emit("scraping-started", ()).ok();
         let verboser = TauriVerboser::new(app, cancel_flag);
-        if let Err(e) = rustcrape::engine::run(config, verboser).await {
-            app_handle
-                .emit(
-                    "verboser-event",
-                    VerboserPayload {
-                        kind: "error".to_string(),
-                        message: format!("Error durante scraping: {e}"),
-                    },
-                )
-                .ok();
-        }
+        rustcrape::engine::run_dispatch(config, verboser).await;
         app_handle.emit("scraping-finished", ()).ok();
     });
 
@@ -219,10 +227,14 @@ pub async fn pick_executable(app: AppHandle, key: String) -> Result<(), String> 
         }
 
         let exe_path = is_exe(file);
-        app.emit("executable-picked", ExecutablePickedPayload {
-            key: dialog_key,
-            path: exe_path,
-        }).ok();
+        app.emit(
+            "executable-picked",
+            ExecutablePickedPayload {
+                key: dialog_key,
+                path: exe_path,
+            },
+        )
+        .ok();
     });
 
     Ok(())

@@ -17,6 +17,16 @@
     await pickExecutable(key);
   }
 
+  function clearPath(key: string): void {
+    if (key === "browser") {
+      browserPath = "";
+      appStore.setBrowserPath(null);
+    } else {
+      nordvpnPath = "";
+      appStore.setNordvpnPath(null);
+    }
+  }
+
   $effect(() => {
     const unlistenPromise = onExecutablePicked(({ key, path }) => {
       if (path) {
@@ -47,39 +57,43 @@
 
 <div class="settings">
   <div class="settings-body">
-      <fieldset>
-        <legend>VPN</legend>
+      <div class="panel">
+        <h4>VPN</h4>
         <div class="field">
           <label for="nordvpn-path">Ejecutable de NordVPN</label>
-          <div class="file-picker">
-            <input
-              type="text"
-              id="nordvpn-path"
-              readonly
-              placeholder="Seleccionar ejecutable..."
-              bind:value={nordvpnPath}
-            />
-            <button class="btn-small" onclick={() => onPickExecutable("nordvpn")}>Examinar</button>
+          <div class="file-row">
+            <button class="file-btn" onclick={() => onPickExecutable("nordvpn")}>
+              {nordvpnPath || "Seleccionar ejecutable..."}
+            </button>
+            {#if nordvpnPath}
+              <button class="clear-btn" onclick={() => clearPath("nordvpn")} aria-label="Limpiar">
+                <svg viewBox="0 0 24 24" width="14" height="14">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                </svg>
+              </button>
+            {/if}
           </div>
         </div>
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>Navegador</legend>
+      <div class="panel">
+        <h4>Navegador</h4>
         <div class="field">
           <label for="browser-path">Ejecutable del navegador</label>
-          <div class="file-picker">
-            <input
-              type="text"
-              id="browser-path"
-              readonly
-              placeholder="Seleccionar ejecutable..."
-              bind:value={browserPath}
-            />
-            <button class="btn-small" onclick={() => onPickExecutable("browser")}>Examinar</button>
+          <div class="file-row">
+            <button class="file-btn" onclick={() => onPickExecutable("browser")}>
+              {browserPath || "Seleccionar ejecutable..."}
+            </button>
+            {#if browserPath}
+              <button class="clear-btn" onclick={() => clearPath("browser")} aria-label="Limpiar">
+                <svg viewBox="0 0 24 24" width="14" height="14">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                </svg>
+              </button>
+            {/if}
           </div>
         </div>
-      </fieldset>
+      </div>
 
     <div class="actions">
       <button class="btn-primary" onclick={onSave}>Guardar</button>
@@ -89,7 +103,7 @@
 
 <style>
   .settings {
-    max-width: 720px;
+    width: 520px;
     margin: 0 auto;
   }
 
@@ -99,24 +113,22 @@
     gap: 16px;
   }
 
-  fieldset {
-    border: 1px solid var(--border, #2a3a5c);
+  .panel {
+    flex: 1;
+    background: var(--card-bg, #1f2b47);
+    border: 0px;
     border-radius: 8px;
     padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
   }
-
-  legend {
+ 
+  .panel h4 {
     font-size: 12px;
-    font-weight: 600;
+    margin: 0 0 8px 0;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: var(--primary, #4f8cff);
-    padding: 0 8px;
+    color: var(--primary, #8892b0);
   }
-
+  
   .field {
     display: flex;
     flex-direction: column;
@@ -131,13 +143,8 @@
     letter-spacing: 0.5px;
   }
 
-  .file-picker {
-    display: flex;
-    gap: 8px;
-  }
-
-  .file-picker input {
-    flex: 1;
+  .file-btn {
+    width: 100%;
     padding: 8px 12px;
     border: 1px solid var(--border, #2a3a5c);
     border-radius: 6px;
@@ -146,7 +153,46 @@
     font-size: 13px;
     font-family: var(--font);
     cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     outline: none;
+  }
+
+  .file-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .file-row .file-btn {
+    flex: 1;
+  }
+
+  .clear-btn {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    background: #e53e3e;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .clear-btn:hover {
+    background: #c53030;
+  }
+
+  .clear-btn svg {
+    display: block;
+    color: #fff;
   }
 
   .actions {

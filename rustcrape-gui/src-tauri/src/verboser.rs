@@ -146,9 +146,6 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         );
     }
 
-    fn warn(&self, msg: &str) {
-        self.emit("warn", format!("Advertencia: {msg}"));
-    }
 
     fn vpn_rotating(&self) {
         self.emit("vpn_rotating", "Rotando IP a través de NordVPN...".into());
@@ -164,5 +161,13 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
 
     fn is_cancelled(&self) -> bool {
         self.cancel_flag.load(Ordering::SeqCst)
+    }
+
+    fn warn(&self, msg: &str) {
+        self.emit("warn", format!("Advertencia: {msg}"));
+    }
+
+    fn error(&self, err: &str) {
+        self.emit("error", format!("Error: {err}"));
     }
 }

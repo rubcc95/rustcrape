@@ -21,10 +21,13 @@ pub trait Verboser: Send + Sync {
     fn processed_coincidence(&self, name: &str, count: usize);
     fn writing_coincidences(&self, output: &[Coincidence]);
     fn written_coincidences(&self, count: i32);
-    fn warn(&self, msg: &str);
     fn vpn_rotating(&self) {}
     fn vpn_rotated(&self) {}
-    fn vpn_not_available(&self) {}
+    fn vpn_not_available(&self) {}  
+
+    fn warn(&self, msg: &str);
+    fn error(&self, err: &str);
+
     fn is_cancelled(&self) -> bool {
         false
     }
@@ -75,10 +78,15 @@ impl Verboser for DebugProgress {
     #[inline(always)]
     fn written_coincidences(&self, _: i32) {}
     #[inline(always)]
-    fn warn(&self, _: &str) {}
     fn vpn_rotating(&self) {}
+    #[inline(always)]
     fn vpn_rotated(&self) {}
-    fn vpn_not_available(&self) {}
+    #[inline(always)]
+    fn vpn_not_available(&self) {}    
+    #[inline(always)]
+    fn warn(&self, _: &str) {}
+    #[inline(always)]
+    fn error(&self, _: &str) {}
 }
 
 #[cfg(debug_assertions)]
@@ -150,9 +158,6 @@ impl Verboser for DebugVerboser {
     fn written_coincidences(&self, count: i32) {
         eprintln!("Written {count} coincidences to database.");
     }
-    fn warn(&self, msg: &str) {
-        eprintln!("Warning: {msg}");
-    }
     fn vpn_rotating(&self) {
         eprintln!("VPN: rotating IP...");
     }
@@ -161,5 +166,11 @@ impl Verboser for DebugVerboser {
     }
     fn vpn_not_available(&self) {
         eprintln!("Warning: NordVPN binary not found, continuing without IP rotation");
+    }
+    fn warn(&self, msg: &str) {
+        eprintln!("Warning: {msg}");
+    }
+    fn error(&self, err: &str) {
+        eprintln!("Error: {err}");
     }
 }

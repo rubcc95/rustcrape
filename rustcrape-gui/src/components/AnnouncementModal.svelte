@@ -18,9 +18,9 @@
 
 {#if announcement}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="modal-overlay" onclick={announcement.closeable ? close : undefined} role="dialog">
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="modal-card" onclick={(e) => e.stopPropagation()}>
+  <div class="modal-overlay" onclick={announcement.closeable ? close : undefined} role="dialog" tabindex="-1">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="modal-card" onclick={(e) => e.stopPropagation()} role="presentation">
       <h2 class="modal-title">{announcement.title}</h2>
       <p class="modal-content">{announcement.content}</p>
       <div class="modal-actions">

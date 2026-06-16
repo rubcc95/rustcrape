@@ -13,8 +13,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_local_data_dir = app.path().app_local_data_dir().expect("failed to get app local data dir");
             let store = ConfigStore::new(app_data_dir).expect("failed to init config store");
-            app.manage(AppState::new(store));
+            app.manage(AppState::new(store, app_local_data_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
