@@ -42,6 +42,16 @@ class ProjectStore {
     return this.currentProject === null;
   }
 
+  private getOrCreateDbPath(): string {
+    if (this.currentProject) {
+      const db = this.currentProject.config.db;
+      if (db.type === "sqlite" && db.path) {
+        return db.path;
+      }
+    }
+    return `${crypto.randomUUID()}.db`;
+  }
+
   buildConfig(): Config {
     const gs = appStore.globalSettings;
     const db: DbConfig = this.projectDraft.use_mysql
@@ -53,7 +63,7 @@ class ProjectStore {
           password: this.projectDraft.db_password,
           database: this.projectDraft.db_database,
         }
-      : { type: "sqlite" };
+      : { type: "sqlite", path: this.getOrCreateDbPath() };
     return {
       search: {
         persistent: {

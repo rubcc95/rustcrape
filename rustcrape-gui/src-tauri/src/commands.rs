@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -137,17 +137,25 @@ pub async fn run_scraping(
     let cancel_flag = state.cancel_flag.clone();
     let app_handle = app.clone();
 
-    // Resolve SQLite default path to app_local_data_dir
-    let config = match config.db {
+    // Resolve SQLite path against app_local_data_dir
+    let config = match &config.db {
+        DbConfig::Sqlite { path: Some(p) } if !Path::new(p).is_absolute() => {
+            let data_dir = state.local_data_dir.clone();
+            std::fs::create_dir_all(&data_dir).ok();
+            let mut c = config.clone();
+            c.db = DbConfig::Sqlite {
+                path: Some(data_dir.join(p).to_string_lossy().to_string()),
+            };
+            c
+        }
         DbConfig::Sqlite { path: None } => {
             let data_dir = state.local_data_dir.clone();
             std::fs::create_dir_all(&data_dir).ok();
-            Config {
-                db: DbConfig::Sqlite {
-                    path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
-                },
-                ..config
-            }
+            let mut c = config.clone();
+            c.db = DbConfig::Sqlite {
+                path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
+            };
+            c
         }
         _ => config,
     };
