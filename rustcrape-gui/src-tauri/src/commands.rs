@@ -185,12 +185,12 @@ pub fn cancel_scraping(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn pick_executable(app: AppHandle) -> Result<(), String> {
+    #[cfg(not(windows))]
     let dialog = app.dialog().file();
 
     #[cfg(windows)]
-    {
-        dialog = dialog.add_filter("exe", &["exe"]);
-    }
+    let dialog = app.dialog().file().add_filter("exe", &["exe"]);
+    
 
     dialog.pick_file(move |file| {
         fn is_exe(file: Option<FilePath>) -> Option<String> {

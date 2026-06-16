@@ -1,8 +1,0 @@
-node_modules/
-dist/
-*.exe
-sea-config.json
-.playwright-mcp/
-pwtest/node_modules/
-pwtest/*.exe
-*.log
