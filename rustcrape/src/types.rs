@@ -16,6 +16,7 @@ pub struct Config {
     pub iterations: u32,
     pub db: DbConfig,
     pub nordvpn_path: Option<String>,
+    pub browser_path: Option<String>,
     pub ip_rotation_frequency: u32,
 }
 
