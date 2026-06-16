@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -73,7 +74,7 @@ pub async fn run(mut config: Config, verboser: impl Verboser) -> Result<()> {
             config: &config,
         };
 
-        if let Err((conn, err)) = run_claimed(&db, ctx, &verboser).await {
+        if let Err((conn, err)) = run_claimed(&db, ctx, config.browser_path.as_deref().map(Path::new), &verboser).await {
             eprintln!(
                 "Error al procesar bound: lat = {}, lng = {}, error = {:?}",
                 lat, lng, err
@@ -94,6 +95,7 @@ pub async fn run(mut config: Config, verboser: impl Verboser) -> Result<()> {
 async fn run_claimed(
     db: &DbManager,
     ctx: SearchContext<'_>,
+    browser_path: Option<&Path>,
     verboser: &impl Verboser,
 ) -> std::result::Result<(), (Option<DbConnection>, anyhow::Error)> {
     if verboser.is_cancelled() {
@@ -101,7 +103,7 @@ async fn run_claimed(
         return Ok(());
     }
     verboser.opening_browser(ctx.lat, ctx.lng);
-    let browser = Browser::launch(ctx.headless)
+    let browser = Browser::launch(ctx.headless, browser_path)
         .await
         .map_err(|err| (None, err))?;
     let output = scrape(&browser, ctx, verboser)
@@ -166,6 +168,7 @@ mod tests {
                 database: "rustcrape".to_string(),
             },
             nordvpn_path: None,
+            browser_path: None,
             ip_rotation_frequency: 0,
         }
     }

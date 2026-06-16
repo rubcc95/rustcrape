@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chromiumoxide::handler::viewport::Viewport;
@@ -116,7 +116,7 @@ pub struct Browser {
 }
 
 impl Browser {
-    pub async fn launch(headless: bool) -> Result<Self> {
+    pub async fn launch(headless: bool, browser_path: Option<&Path>) -> Result<Self> {
         let idx = rand_range(0, VIEWPORTS.len() - 1);
         let (width, height) = VIEWPORTS[idx];
         let user_agent = USER_AGENTS[rand_range(0, USER_AGENTS.len() - 1)];
@@ -134,7 +134,12 @@ impl Browser {
             builder = builder.with_head();
         }
 
-        if let Some(path) = find_browser() {
+        let exe_path = browser_path
+            .filter(|p| p.is_file())
+            .map(|p| p.to_path_buf())
+            .or_else(find_browser);
+
+        if let Some(path) = exe_path {
             builder = builder.chrome_executable(path);
         }
 
@@ -195,7 +200,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_buscar_with_browser_instance() {
-        let instance = Browser::launch(true).await.unwrap();
+        let instance = Browser::launch(true, None).await.unwrap();
         let config = SearchConfig {
             persistent: PersistentConfig {
                 search_query: "Tintoreria".to_string(),
@@ -227,7 +232,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn search_multi() {
-        let instance = Browser::launch(true).await.unwrap();
+        let instance = Browser::launch(true, None).await.unwrap();
 
         let config = SearchConfig {
             persistent: PersistentConfig {
@@ -261,7 +266,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn search_single() {
-        let instance = Browser::launch(true).await.unwrap();
+        let instance = Browser::launch(true, None).await.unwrap();
         let config = SearchConfig {
             persistent: PersistentConfig {
                 search_query: "Parque de Ferrera".to_string(),

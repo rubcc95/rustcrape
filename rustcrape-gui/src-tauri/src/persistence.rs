@@ -19,6 +19,7 @@ struct Metadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalSettings {
     pub nordvpn_path: Option<String>,
+    pub browser_path: Option<String>,
 }
 
 pub struct ConfigStore {
@@ -45,7 +46,10 @@ impl ConfigStore {
             let content = std::fs::read_to_string(&self.settings_path)?;
             Ok(serde_json::from_str(&content)?)
         } else {
-            Ok(GlobalSettings { nordvpn_path: None })
+            Ok(GlobalSettings {
+                nordvpn_path: None,
+                browser_path: None,
+            })
         }
     }
 

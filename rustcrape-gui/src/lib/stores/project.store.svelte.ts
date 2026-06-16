@@ -65,6 +65,7 @@ class ProjectStore {
       nordvpn_path: this.executionConfig.use_vpn
         ? gs.nordvpn_path
         : null,
+      browser_path: gs.browser_path,
       ip_rotation_frequency: this.executionConfig.use_vpn
         ? this.executionConfig.ip_rotation_frequency
         : 0,

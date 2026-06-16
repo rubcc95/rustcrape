@@ -64,8 +64,8 @@ export async function saveGlobalSettings(
 
 // ── File picker ──
 
-export async function pickExecutable(): Promise<void> {
-  return invoke("pick_executable");
+export async function pickExecutable(key: string): Promise<void> {
+  return invoke("pick_executable", { key });
 }
 
 // ── Event listeners ──
@@ -90,10 +90,15 @@ export function onScrapingFinished(
   return listen("scraping-finished", () => callback());
 }
 
+export interface ExecutablePickedPayload {
+  key: string;
+  path: string | null;
+}
+
 export function onExecutablePicked(
-  callback: (path: string | null) => void
+  callback: (payload: ExecutablePickedPayload) => void
 ): Promise<UnlistenFn> {
-  return listen<string | null>("executable-picked", (event) => {
+  return listen<ExecutablePickedPayload>("executable-picked", (event) => {
     callback(event.payload);
   });
 }

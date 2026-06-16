@@ -3,20 +3,30 @@
   import { pickExecutable, saveGlobalSettings, onExecutablePicked } from "../lib/tauri";
  
   let nordvpnPath = $state("");
+  let browserPath = $state("");
 
   $effect(() => {
     nordvpnPath = appStore.globalSettings.nordvpn_path ?? "";
   });
 
-  async function onPickExecutable(): Promise<void> {
-    await pickExecutable();
+  $effect(() => {
+    browserPath = appStore.globalSettings.browser_path ?? "";
+  });
+
+  async function onPickExecutable(key: string): Promise<void> {
+    await pickExecutable(key);
   }
 
   $effect(() => {
-    const unlistenPromise = onExecutablePicked((path) => {
+    const unlistenPromise = onExecutablePicked(({ key, path }) => {
       if (path) {
-        nordvpnPath = path;
-        appStore.setNordvpnPath(path);
+        if (key === "browser") {
+          browserPath = path;
+          appStore.setBrowserPath(path);
+        } else {
+          nordvpnPath = path;
+          appStore.setNordvpnPath(path);
+        }
       }
     });
     return () => {
@@ -25,30 +35,51 @@
   });
 
   async function onSave(): Promise<void> {
-    const settings = { nordvpn_path: nordvpnPath || null };
+    const settings = {
+      nordvpn_path: nordvpnPath || null,
+      browser_path: browserPath || null,
+    };
     appStore.setNordvpnPath(settings.nordvpn_path);
+    appStore.setBrowserPath(settings.browser_path);
     await saveGlobalSettings(settings);
   }
 </script>
 
 <div class="settings">
   <div class="settings-body">
-    <fieldset>
-      <legend>VPN</legend>
-      <div class="field">
-        <label for="nordvpn-path">Ejecutable de NordVPN</label>
-        <div class="file-picker">
-          <input
-            type="text"
-            id="nordvpn-path"
-            readonly
-            placeholder="Seleccionar ejecutable..."
-            bind:value={nordvpnPath}
-          />
-          <button class="btn-small" onclick={onPickExecutable}>Examinar</button>
+      <fieldset>
+        <legend>VPN</legend>
+        <div class="field">
+          <label for="nordvpn-path">Ejecutable de NordVPN</label>
+          <div class="file-picker">
+            <input
+              type="text"
+              id="nordvpn-path"
+              readonly
+              placeholder="Seleccionar ejecutable..."
+              bind:value={nordvpnPath}
+            />
+            <button class="btn-small" onclick={() => onPickExecutable("nordvpn")}>Examinar</button>
+          </div>
         </div>
-      </div>
-    </fieldset>
+      </fieldset>
+
+      <fieldset>
+        <legend>Navegador</legend>
+        <div class="field">
+          <label for="browser-path">Ejecutable del navegador</label>
+          <div class="file-picker">
+            <input
+              type="text"
+              id="browser-path"
+              readonly
+              placeholder="Seleccionar ejecutable..."
+              bind:value={browserPath}
+            />
+            <button class="btn-small" onclick={() => onPickExecutable("browser")}>Examinar</button>
+          </div>
+        </div>
+      </fieldset>
 
     <div class="actions">
       <button class="btn-primary" onclick={onSave}>Guardar</button>

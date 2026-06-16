@@ -183,14 +183,21 @@ pub fn cancel_scraping(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutablePickedPayload {
+    pub key: String,
+    pub path: Option<String>,
+}
+
 #[tauri::command]
-pub async fn pick_executable(app: AppHandle) -> Result<(), String> {
+pub async fn pick_executable(app: AppHandle, key: String) -> Result<(), String> {
     #[cfg(not(windows))]
     let dialog = app.dialog().file();
 
     #[cfg(windows)]
     let dialog = app.dialog().file().add_filter("exe", &["exe"]);
-    
+
+    let dialog_key = key.clone();
 
     dialog.pick_file(move |file| {
         fn is_exe(file: Option<FilePath>) -> Option<String> {
@@ -210,9 +217,12 @@ pub async fn pick_executable(app: AppHandle) -> Result<(), String> {
             }
             None
         }
-        
+
         let exe_path = is_exe(file);
-        app.emit("executable-picked", exe_path).ok();
+        app.emit("executable-picked", ExecutablePickedPayload {
+            key: dialog_key,
+            path: exe_path,
+        }).ok();
     });
 
     Ok(())

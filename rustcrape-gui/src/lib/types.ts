@@ -27,6 +27,7 @@ export interface Config {
   iterations: number;
   db: DbConfig;
   nordvpn_path: string | null;
+  browser_path: string | null;
   ip_rotation_frequency: number;
 }
 
@@ -39,6 +40,7 @@ export interface SavedConfig {
 
 export interface GlobalSettings {
   nordvpn_path: string | null;
+  browser_path: string | null;
 }
 
 export interface VerboserPayload {
