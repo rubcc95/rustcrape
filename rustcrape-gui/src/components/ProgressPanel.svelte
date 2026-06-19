@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { IterationStats } from "../lib/types";
+  import Panel from "./Panel.svelte";
 
   let { stats }: { stats: IterationStats } = $props();
-</script>
+</script> 
 
-<div class="panel">
-  <h4>Progreso</h4>
+<Panel title="Progreso" flex>
   <div class="stats-grid">
     <div class="stat-card">
       <span class="stat-value">{stats.bounds_processed}</span>
@@ -24,25 +24,9 @@
       <span class="stat-label">Teléfonos</span>
     </div>
   </div>
-</div>
+</Panel>
 
 <style>
-  .panel {
-    flex: 1;
-    background: var(--card-bg, #1f2b47);
-    border: 0px;
-    border-radius: 8px;
-    padding: 16px;
-  }
-
-  .panel h4 {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--progreso, #8892b0);
-  }
-
   .stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

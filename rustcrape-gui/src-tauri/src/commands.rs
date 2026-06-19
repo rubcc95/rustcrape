@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rustcrape::types::{Config, DbConfig};
+use rustcrape::types::{Config, DbConfig, ProjectStats};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -43,9 +43,6 @@ pub fn save_config(
     let saved = store
         .save(&name, config, started)
         .map_err(|e| e.to_string())?;
-    store
-        .set_last_selected(Some(&saved.id))
-        .map_err(|e| e.to_string())?;
     Ok(saved)
 }
 
@@ -53,21 +50,6 @@ pub fn save_config(
 pub fn delete_config(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.delete(&id).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_last_selected(state: State<'_, AppState>) -> Result<Option<SavedConfig>, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    Ok(store.get_last_selected())
-}
-
-#[tauri::command]
-pub fn set_last_selected(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store
-        .set_last_selected(Some(&id))
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -172,31 +154,37 @@ pub async fn run_scraping(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Announcement {
-    pub title: String,
-    pub content: String,
-    pub link: String,
-    pub link_label: String,
-    pub closeable: bool,
-}
-
-#[tauri::command]
-pub async fn check_announcement() -> Option<Announcement> {
-    let version = env!("CARGO_PKG_VERSION");
-    let url = "https://raw.githubusercontent.com/rubcc95/rustcrape/refs/heads/main/other_file";
-
-    let resp = reqwest::get(url).await.ok()?;
-    let body = resp.text().await.ok()?;
-    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let entry = json.get(version)?.clone();
-    serde_json::from_value(entry).ok()
-}
-
 #[tauri::command]
 pub fn cancel_scraping(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_flag.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn fetch_project_stats(
+    state: State<'_, AppState>,
+    config: Config,
+) -> Result<ProjectStats, String> {
+    let config = match &config.db {
+        DbConfig::Sqlite { path: Some(p) } if !Path::new(p).is_absolute() => {
+            let data_dir = state.local_data_dir.clone();
+            let mut c = config.clone();
+            c.db = DbConfig::Sqlite {
+                path: Some(data_dir.join(p).to_string_lossy().to_string()),
+            };
+            c
+        }
+        DbConfig::Sqlite { path: None } => {
+            let data_dir = state.local_data_dir.clone();
+            let mut c = config.clone();
+            c.db = DbConfig::Sqlite {
+                path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
+            };
+            c
+        }
+        _ => config,
+    };
+    rustcrape::db::fetch_project_stats(&config.db).await.map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,7 +10,7 @@
     const route = appStore.currentRoute;
     if (route === "settings") return "Rustcrape — Configuración global";
     if (route === "execution") return "Rustcrape — Ejecución";
-    if (projectStore.isNewProject) return "Rustcrape — Nuevo proyecto";
+    if (projectStore.currentProject === null) return "Rustcrape — Nuevo proyecto";
     return `Rustcrape — ${projectStore.currentProject?.name ?? "Proyecto"}`;
   });
 

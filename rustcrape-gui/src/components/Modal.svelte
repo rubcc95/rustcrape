@@ -15,8 +15,8 @@
 </script>
 
 {#if open}
-  <div class="modal-overlay" onclick={onCancel} role="dialog">
-    <div class="modal-card" onclick={(e) => e.stopPropagation()}>
+  <div class="modal-overlay" role="presentation" onclick={onCancel} onkeydown={(e) => e.key === 'Escape' && onCancel()}>
+    <div class="modal-card" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <h3 class="modal-title">{title}</h3>
       <p class="modal-message">{message}</p>
       <div class="modal-actions">

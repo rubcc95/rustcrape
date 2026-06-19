@@ -3,18 +3,15 @@ use std::str::FromStr;
 
 use crate::generator::SPAIN;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, PersistentConfig};
+use crate::types::{Coincidence, PersistentConfig, ProjectStats};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
 pub fn default_path() -> String {
-    let base = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join("rustcrape.db")
-        .to_string_lossy()
-        .to_string()
+    let base = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    base.join("rustcrape.db").to_string_lossy().to_string()
 }
 
 pub struct SqlitePersistence {
@@ -31,8 +28,7 @@ impl SqlitePersistence {
             std::fs::create_dir_all(parent).ok();
         }
 
-        let opts = SqliteConnectOptions::from_str(db_path)?
-            .create_if_missing(true);
+        let opts = SqliteConnectOptions::from_str(db_path)?.create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(opts)
@@ -109,15 +105,14 @@ impl SqlitePersistence {
         .await?;
 
         // Load persisted config (overwrites params if db already existed)
-        if let Ok(Some(row)) = sqlx::query(
-            "SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1",
-        )
-        .fetch_optional(&self.pool)
-        .await
+        if let Ok(Some(row)) =
+            sqlx::query("SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await
         {
             params.search_query = row.get("search_query");
             params.zoom = row.get("zoom");
-        } 
+        }
 
         // Check if bounds exist; if not, seed the grid
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM bounds")
@@ -170,11 +165,7 @@ impl Persistence for SqlitePersistence {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn release_bound(
-        &self,
-        bound_id: i64,
-        completed: Option<(i32, i32)>,
-    ) -> Result<bool> {
+    async fn release_bound(&self, bound_id: i64, completed: Option<(i32, i32)>) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
                 "UPDATE bounds SET in_progress = 0, started_at = datetime('now'), items = ?, duplicated = ? WHERE id = ?",
@@ -191,13 +182,13 @@ impl Persistence for SqlitePersistence {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64> {
+    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<(u64, u64)> {
         let filtered: Vec<Coincidence> = data
             .into_iter()
             .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
             .collect();
         if filtered.is_empty() {
-            return Ok(0);
+            return Ok((0, 0));
         }
         let mut builder =
             sqlx::QueryBuilder::new("INSERT OR IGNORE INTO coincidences (name, web, email, tfno) ");
@@ -207,7 +198,53 @@ impl Persistence for SqlitePersistence {
             b.push_bind(c.email.unwrap_or_default());
             b.push_bind(c.tfno.unwrap_or_default());
         });
+        let phones: u64 = sqlx::QueryBuilder::new(
+            "SELECT COUNT(DISTINCT tfno) FROM coincidences WHERE tfno IS NOT NULL",
+        )
+        .build()
+        .fetch_one(&self.pool)
+        .await?
+        .get(0);
+
         let result = builder.build().execute(&self.pool).await?;
-        Ok(result.rows_affected() as u64)
+        Ok((result.rows_affected() as u64, phones))
     }
+}
+
+pub async fn fetch_stats(db_path: &str) -> Result<ProjectStats> {
+    let opts = SqliteConnectOptions::from_str(db_path)?.read_only(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await?;
+
+    let bounds_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bounds")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let bounds_processed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM bounds WHERE items IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+    let results_found: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM coincidences")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let phones_found: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT tfno) FROM coincidences WHERE tfno IS NOT NULL AND tfno != ''",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+
+    pool.close().await;
+
+    Ok(ProjectStats {
+        bounds_total,
+        bounds_processed,
+        bounds_remaining: bounds_total - bounds_processed,
+        results_found,
+        phones_found,
+    })
 }

@@ -5,7 +5,7 @@ import type {
   Config,
   GlobalSettings,
   VerboserPayload,
-  Announcement,
+  IterationStats,
 } from "./types";
 
 // ── Config CRUD ──
@@ -26,28 +26,17 @@ export async function deleteConfig(id: string): Promise<void> {
   return invoke("delete_config", { id });
 }
 
-export async function getLastSelected(): Promise<SavedConfig | null> {
-  return invoke("get_last_selected");
-}
-
-export async function setLastSelected(id: string): Promise<void> {
-  return invoke("set_last_selected", { id });
-}
-
-// ── App ──
-
-export async function checkAnnouncement(): Promise<Announcement | null> {
-  return invoke("check_announcement");
-}
-
 // ── Execution ──
-
 export async function runScraping(config: Config): Promise<void> {
   return invoke("run_scraping", { config });
 }
 
 export async function cancelScraping(): Promise<void> {
   return invoke("cancel_scraping");
+}
+
+export async function fetchProjectStats(config: Config): Promise<IterationStats> {
+  return invoke("fetch_project_stats", { config });
 }
 
 // ── Global Settings ──

@@ -1,13 +1,23 @@
 use crate::generator::SPAIN;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, PersistentConfig};
+use crate::types::{Coincidence, DbConfig, PersistentConfig, ProjectStats};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::{MySqlPool, Row};
 
 const NUMERIC_TYPES: &[&str] = &[
-    "decimal", "double", "float", "int", "bigint", "smallint",
-    "tinyint", "mediumint", "dec", "fixed", "numeric", "real",
+    "decimal",
+    "double",
+    "float",
+    "int",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "mediumint",
+    "dec",
+    "fixed",
+    "numeric",
+    "real",
 ];
 
 const NEW_BOUND_COLUMNS: &[(&str, &str)] = &[
@@ -42,9 +52,19 @@ impl MysqlPersistence {
         verboser: &impl Verboser,
     ) -> Result<Self> {
         let (host, port, user, password, database) = match config {
-            DbConfig::Mysql { host, port, user, password, database } => {
-                (host.clone(), *port, user.clone(), password.clone(), database.clone())
-            }
+            DbConfig::Mysql {
+                host,
+                port,
+                user,
+                password,
+                database,
+            } => (
+                host.clone(),
+                *port,
+                user.clone(),
+                password.clone(),
+                database.clone(),
+            ),
             _ => unreachable!(),
         };
 
@@ -55,13 +75,12 @@ impl MysqlPersistence {
         let admin_pool = MySqlPool::connect(&engine_url).await?;
 
         // 2. Check if database exists
-        let exists = sqlx::query(
-            "SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1",
-        )
-        .bind(&database)
-        .fetch_optional(&admin_pool)
-        .await?
-        .is_some();
+        let exists =
+            sqlx::query("SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1")
+                .bind(&database)
+                .fetch_optional(&admin_pool)
+                .await?
+                .is_some();
 
         if !exists {
             verboser.creating_db();
@@ -74,11 +93,21 @@ impl MysqlPersistence {
         }
 
         // 3. Connect with the database
-        let db_url = format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, database);
+        let db_url = format!(
+            "mysql://{}:{}@{}:{}/{}",
+            user, password, host, port, database
+        );
         let pool = MySqlPool::connect(&db_url).await?;
         drop(admin_pool);
 
-        let this = Self { pool, db_name: database, host, port, user, password };
+        let this = Self {
+            pool,
+            db_name: database,
+            host,
+            port,
+            user,
+            password,
+        };
 
         // 4. Ensure tables
         if !exists {
@@ -208,10 +237,11 @@ impl MysqlPersistence {
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.verifying_db();
-        let rows = sqlx::query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?")
-            .bind(&self.db_name)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?")
+                .bind(&self.db_name)
+                .fetch_all(&self.pool)
+                .await?;
 
         if rows.is_empty() {
             return self.create_tables(params, verboser).await;
@@ -230,12 +260,11 @@ impl MysqlPersistence {
             self.validate_coincidences_unique().await?;
             self.ensure_bound_columns().await?;
 
-            let config_row = sqlx::query(
-                "SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1",
-            )
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("configuration_rustcrape table is empty"))?;
+            let config_row =
+                sqlx::query("SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1")
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("configuration_rustcrape table is empty"))?;
             params.search_query = config_row.get("search_query");
             params.zoom = config_row.get("zoom");
             return Ok(());
@@ -249,7 +278,11 @@ impl MysqlPersistence {
                 ("coincidences", coincidences_ok),
                 ("configuration_rustcrape", config_ok),
             ] {
-                if ok { present.push(name); } else { missing.push(name); }
+                if ok {
+                    present.push(name);
+                } else {
+                    missing.push(name);
+                }
             }
             anyhow::bail!(
                 "Tablas existentes: {}. Tablas faltantes: {}. Deben existir todas o ninguna.",
@@ -289,9 +322,16 @@ impl MysqlPersistence {
         let cols = self.get_columns("coincidences").await?;
         let required = ["name", "email", "web", "tfno", "maps"];
         let names: std::collections::HashSet<&str> = cols.iter().map(|c| c.name.as_str()).collect();
-        let missing: Vec<&str> = required.iter().filter(|n| !names.contains(*n)).copied().collect();
+        let missing: Vec<&str> = required
+            .iter()
+            .filter(|n| !names.contains(*n))
+            .copied()
+            .collect();
         if !missing.is_empty() {
-            anyhow::bail!("Table coincidences: missing columns: {}", missing.join(", "));
+            anyhow::bail!(
+                "Table coincidences: missing columns: {}",
+                missing.join(", ")
+            );
         }
         Ok(())
     }
@@ -333,20 +373,15 @@ impl Persistence for MysqlPersistence {
     }
 
     async fn claim_bound(&self, bound_id: i64) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE bounds SET in_progress = 1, started_at = NOW() WHERE id = ?",
-        )
-        .bind(bound_id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE bounds SET in_progress = 1, started_at = NOW() WHERE id = ?")
+                .bind(bound_id)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
-    async fn release_bound(
-        &self,
-        bound_id: i64,
-        completed: Option<(i32, i32)>,
-    ) -> Result<bool> {
+    async fn release_bound(&self, bound_id: i64, completed: Option<(i32, i32)>) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
                 "UPDATE bounds SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? WHERE id = ?",
@@ -363,13 +398,13 @@ impl Persistence for MysqlPersistence {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64> {
+    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<(u64, u64)> {
         let filtered: Vec<Coincidence> = data
             .into_iter()
             .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
             .collect();
         if filtered.is_empty() {
-            return Ok(0);
+            return Ok((0, 0));
         }
         let mut builder =
             sqlx::QueryBuilder::new("INSERT IGNORE INTO coincidences (name, web, email, tfno) ");
@@ -379,7 +414,69 @@ impl Persistence for MysqlPersistence {
             b.push_bind(c.email.unwrap_or_default());
             b.push_bind(c.tfno.unwrap_or_default());
         });
+        let phones: u64 = sqlx::QueryBuilder::new(
+            "SELECT COUNT(DISTINCT tfno) FROM coincidences WHERE tfno IS NOT NULL",
+        )
+        .build()
+        .fetch_one(&self.pool)
+        .await?
+        .get(0);
         let result = builder.build().execute(&self.pool).await?;
-        Ok(result.rows_affected())
+        Ok((result.rows_affected(), phones))
     }
+}
+
+pub async fn fetch_stats(config: &DbConfig) -> Result<ProjectStats> {
+    let (host, port, user, password, database) = match config {
+        DbConfig::Mysql {
+            host,
+            port,
+            user,
+            password,
+            database,
+        } => (
+            host.clone(),
+            *port,
+            user.clone(),
+            password.clone(),
+            database.clone(),
+        ),
+        _ => unreachable!(),
+    };
+
+    let db_url = format!(
+        "mysql://{}:{}@{}:{}/{}",
+        user, password, host, port, database
+    );
+    let pool = MySqlPool::connect(&db_url).await?;
+
+    let bounds_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bounds")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let bounds_processed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM bounds WHERE items IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+    let results_found: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM coincidences")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    let phones_found: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT tfno) FROM coincidences WHERE tfno IS NOT NULL AND tfno != ''",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+
+    pool.close().await;
+
+    Ok(ProjectStats {
+        bounds_total,
+        bounds_processed,
+        bounds_remaining: bounds_total - bounds_processed,
+        results_found,
+        phones_found,
+    })
 }

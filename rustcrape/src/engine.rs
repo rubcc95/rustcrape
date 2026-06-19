@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::{
     browser::Browser,
     db::PersistenceKind,
-    scrapper::scrape,
+    scraper::scrape,
     storage::Persistence,
     types::{Config, SearchContext},
     verboser::Verboser,
@@ -141,14 +141,15 @@ async fn run_claimed<P: Persistence>(
     if let Err(err) = browser.close().await {
         return Err(err.into());
     }
-    verboser.writing_coincidences(&output);
     let items = output.len() as i32;
-    let written = persist.write_coincidences(output).await? as i32;
+    let phones = output.iter().filter(|c| c.tfno.is_some()).count() as i32;
+    verboser.writing_coincidences(&output);
+    let (written, phones) = persist.write_coincidences(output).await?;
 
-    verboser.written_coincidences(written);
+    verboser.written_coincidences(written, phones);
 
     persist
-        .release_bound(bound_id, Some((items, items - written)))
+        .release_bound(bound_id, Some((items, items - written as i32)))
         .await?;
     verboser.released_bound();
     Ok(())

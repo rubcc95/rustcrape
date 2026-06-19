@@ -11,10 +11,6 @@ pub struct SavedConfig {
     pub started: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Metadata {
-    last_selected: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalSettings {
@@ -24,19 +20,16 @@ pub struct GlobalSettings {
 
 pub struct ConfigStore {
     configs_dir: PathBuf,
-    metadata_path: PathBuf,
     settings_path: PathBuf,
 }
 
 impl ConfigStore {
     pub fn new(app_data_dir: PathBuf) -> std::io::Result<Self> {
         let configs_dir = app_data_dir.join("configs");
-        let metadata_path = app_data_dir.join("metadata.json");
         let settings_path = app_data_dir.join("settings.json");
         std::fs::create_dir_all(&configs_dir)?;
         Ok(Self {
             configs_dir,
-            metadata_path,
             settings_path,
         })
     }
@@ -116,34 +109,6 @@ impl ConfigStore {
             std::fs::remove_file(&path)?;
         }
         Ok(())
-    }
-
-    pub fn get_last_selected(&self) -> Option<SavedConfig> {
-        let content = std::fs::read_to_string(&self.metadata_path).ok()?;
-        let meta: Metadata = serde_json::from_str(&content).ok()?;
-        let id = meta.last_selected?;
-        self.get(&id)
-    }
-
-    pub fn set_last_selected(&self, id: Option<&str>) -> std::io::Result<()> {
-        let meta = Metadata {
-            last_selected: id.map(|s| s.to_string()),
-        };
-        let content = serde_json::to_string_pretty(&meta)?;
-        std::fs::write(&self.metadata_path, content)?;
-        Ok(())
-    }
-
-    fn get(&self, id: &str) -> Option<SavedConfig> {
-        let path = self.configs_dir.join(format!("{id}.json"));
-        let content = std::fs::read_to_string(path).ok()?;
-        let sc: SavedConfigFields = serde_json::from_str(&content).ok()?;
-        Some(SavedConfig {
-            id: id.to_string(),
-            name: sc.name,
-            config: sc.config,
-            started: sc.started,
-        })
     }
 }
 

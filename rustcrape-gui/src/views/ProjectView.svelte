@@ -7,7 +7,7 @@
 
 <div class="project-view">
   <div class="project-section">
-    {#if projectStore.isNewProject}
+    {#if projectStore.currentProject === null}
       <UnsavedProjectForm />
     {:else}
       <SavedProjectInfo />

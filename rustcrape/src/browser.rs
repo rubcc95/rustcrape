@@ -193,7 +193,7 @@ impl std::ops::Deref for Browser {
 mod tests {
 
     use super::*;
-    use crate::scrapper::scrape;
+    use crate::scraper::scrape;
     use crate::types::{PersistentConfig, SearchConfig, SearchContext};
     use crate::verboser::DebugVerboser;
 

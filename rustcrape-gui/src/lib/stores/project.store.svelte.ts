@@ -9,7 +9,6 @@ import {
   listConfigs,
   saveConfig,
   deleteConfig,
-  setLastSelected,
 } from "../tauri";
 import { appStore } from "./app.store.svelte";
 
@@ -38,9 +37,7 @@ class ProjectStore {
     db_password: "",
   });
 
-  get isNewProject(): boolean {
-    return this.currentProject === null;
-  }
+  
 
   private getOrCreateDbPath(): string {
     if (this.currentProject) {
@@ -56,13 +53,13 @@ class ProjectStore {
     const gs = appStore.globalSettings;
     const db: DbConfig = this.projectDraft.use_mysql
       ? {
-          type: "mysql",
-          host: this.projectDraft.db_host,
-          port: this.projectDraft.db_port,
-          user: this.projectDraft.db_user,
-          password: this.projectDraft.db_password,
-          database: this.projectDraft.db_database,
-        }
+        type: "mysql",
+        host: this.projectDraft.db_host,
+        port: this.projectDraft.db_port,
+        user: this.projectDraft.db_user,
+        password: this.projectDraft.db_password,
+        database: this.projectDraft.db_database,
+      }
       : { type: "sqlite", path: this.getOrCreateDbPath() };
     return {
       search: {
@@ -102,16 +99,32 @@ class ProjectStore {
       headless: c.search.headless,
     };
     const useMysql = c.db.type === "mysql";
+
+    let db_host, db_port, db_database, db_user, db_password;
+    if (c.db.type === "mysql") {
+      db_host = c.db.host;
+      db_port = c.db.port;
+      db_database = c.db.database;
+      db_user = c.db.user;
+      db_password = c.db.password;
+    } else {
+      db_host = "localhost";
+      db_port = 3306;
+      db_database = "rustcrape";
+      db_user = "root";
+      db_password = "";
+    }
+
     this.projectDraft = {
       name: project.name,
       search_query: c.search.persistent.search_query,
       zoom: c.search.persistent.zoom,
       use_mysql: useMysql,
-      db_host: useMysql ? c.db.host : "localhost",
-      db_port: useMysql ? c.db.port : 3306,
-      db_database: useMysql ? c.db.database : "rustcrape",
-      db_user: useMysql ? c.db.user : "root",
-      db_password: useMysql ? c.db.password : "",
+      db_host,
+      db_port,
+      db_database,
+      db_user,
+      db_password,
     };
   }
 
@@ -161,8 +174,7 @@ class ProjectStore {
       const config = this.buildConfig();
       const started = this.currentProject?.started ?? false;
       const saved = await saveConfig(name, config, started);
-      this.currentProject = saved;
-      await setLastSelected(saved.id);
+      this.currentProject = saved;      
       await this.loadProjects();
       return { saved, config };
     } catch (e) {

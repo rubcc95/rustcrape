@@ -1,7 +1,8 @@
 <script lang="ts">
   import { appStore } from "../lib/stores/app.store.svelte";
   import { pickExecutable, saveGlobalSettings, onExecutablePicked } from "../lib/tauri";
- 
+  import Panel from "../components/Panel.svelte";
+
   let nordvpnPath = $state("");
   let browserPath = $state("");
 
@@ -57,43 +58,41 @@
 
 <div class="settings">
   <div class="settings-body">
-      <div class="panel">
-        <h4>VPN</h4>
-        <div class="field">
-          <label for="nordvpn-path">Ejecutable de NordVPN</label>
-          <div class="file-row">
-            <button class="file-btn" onclick={() => onPickExecutable("nordvpn")}>
-              {nordvpnPath || "Seleccionar ejecutable..."}
+    <Panel title="VPN" gap="0">
+      <div class="field">
+        <label for="nordvpn-path">Ejecutable de NordVPN</label>
+        <div class="file-row">
+          <button class="file-btn" onclick={() => onPickExecutable("nordvpn")}>
+            {nordvpnPath || "Seleccionar ejecutable..."}
+          </button>
+          {#if nordvpnPath}
+            <button class="clear-btn" onclick={() => clearPath("nordvpn")} aria-label="Limpiar">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
+              </svg>
             </button>
-            {#if nordvpnPath}
-              <button class="clear-btn" onclick={() => clearPath("nordvpn")} aria-label="Limpiar">
-                <svg viewBox="0 0 24 24" width="14" height="14">
-                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
-                </svg>
-              </button>
-            {/if}
-          </div>
+          {/if}
         </div>
       </div>
+    </Panel>
 
-      <div class="panel">
-        <h4>Navegador</h4>
-        <div class="field">
-          <label for="browser-path">Ejecutable del navegador</label>
-          <div class="file-row">
-            <button class="file-btn" onclick={() => onPickExecutable("browser")}>
-              {browserPath || "Seleccionar ejecutable..."}
+    <Panel title="Navegador" gap="0">
+      <div class="field">
+        <label for="browser-path">Ejecutable del navegador</label>
+        <div class="file-row">
+          <button class="file-btn" onclick={() => onPickExecutable("browser")}>
+            {browserPath || "Seleccionar ejecutable..."}
+          </button>
+          {#if browserPath}
+            <button class="clear-btn" onclick={() => clearPath("browser")} aria-label="Limpiar">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
+              </svg>
             </button>
-            {#if browserPath}
-              <button class="clear-btn" onclick={() => clearPath("browser")} aria-label="Limpiar">
-                <svg viewBox="0 0 24 24" width="14" height="14">
-                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" />
-                </svg>
-              </button>
-            {/if}
-          </div>
+          {/if}
         </div>
       </div>
+    </Panel>
 
     <div class="actions">
       <button class="btn-primary" onclick={onSave}>Guardar</button>
@@ -113,22 +112,6 @@
     gap: 16px;
   }
 
-  .panel {
-    flex: 1;
-    background: var(--card-bg, #1f2b47);
-    border: 0px;
-    border-radius: 8px;
-    padding: 16px;
-  }
- 
-  .panel h4 {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--primary, #8892b0);
-  }
-  
   .field {
     display: flex;
     flex-direction: column;

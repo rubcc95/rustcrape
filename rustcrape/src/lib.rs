@@ -1,7 +1,7 @@
 pub mod types;
 pub mod verboser;
 pub mod browser;
-pub mod scrapper;
+pub mod scraper;
 pub mod generator;
 pub mod db;
 pub mod engine;

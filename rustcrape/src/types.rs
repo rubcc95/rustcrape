@@ -191,3 +191,12 @@ pub struct IterationStats {
     pub duplicated: u64,
     pub empty: u64,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectStats {
+    pub bounds_total: i64,
+    pub bounds_processed: i64,
+    pub bounds_remaining: i64,
+    pub results_found: i64,
+    pub phones_found: i64,
+}

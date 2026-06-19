@@ -139,10 +139,10 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         );
     }
 
-    fn written_coincidences(&self, count: i32) {
+    fn written_coincidences(&self, count: u64, phones: u64) {
         self.emit(
             "written_coincidences",
-            format!("{count} coincidencias escritas en la base de datos."),
+            format!("{count} coincidencias escritas en la base de datos ({phones} con teléfono)."),
         );
     }
 

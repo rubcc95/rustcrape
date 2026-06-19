@@ -1,82 +1,95 @@
 <script lang="ts">
   import { projectStore } from "../lib/stores/project.store.svelte";
+  import { executionStore } from "../lib/stores/execution.store.svelte";
+  import { fetchProjectStats } from "../lib/tauri";
+  import Panel from "./Panel.svelte";
+  import { isMysql } from "../lib/types";
+
+  $effect(() => {
+    const project = projectStore.currentProject;
+    if (project) {
+      fetchProjectStats(project.config).then((s) => {
+        executionStore.stats.bounds_total = s.bounds_total;
+        executionStore.stats.bounds_processed = s.bounds_processed;
+        executionStore.stats.bounds_remaining = s.bounds_remaining;
+        executionStore.stats.results_found = s.results_found;
+        executionStore.stats.phones_found = s.phones_found;
+      }).catch(() => {
+        // DB not accessible yet — keep zeros
+      });
+    }
+  });
 </script>
 
 {#if projectStore.currentProject}
-  <div class="panel">
-    <h4>Información</h4>
+  <div class="info-panels">
+    <Panel title="Información">
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Término de búsqueda</span>
+          <span class="info-value"
+            >{projectStore.currentProject.config.search.persistent.search_query}</span
+          >
+        </div>
+        <div class="info-item">
+          <span class="info-label">Zoom</span>
+          <span class="info-value"
+            >{projectStore.currentProject.config.search.persistent.zoom}</span
+          >
+        </div>
+        <div class="info-item">
+          <span class="info-label">Base de datos</span>
+          <span class="info-value">
+            {#if isMysql(projectStore.currentProject.config.db)}
+              {projectStore.currentProject.config.db.database}@{projectStore.currentProject.config.db.host}
+            {:else if projectStore.currentProject.config.db.path}
+              {projectStore.currentProject.config.db.path}
+            {:else}
+              SQLite local
+            {/if}
+          </span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Mapa</span>
+          <span class="info-value">España</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Ejecutado</span>
+          <span class="info-value"
+            >{projectStore.currentProject.started ? "Sí" : "No"}</span
+          >
+        </div>
+      </div>
+    </Panel>
 
-    <div class="info-grid">
-      <div class="info-item">
-        <span class="info-label">Término de búsqueda</span>
-        <span class="info-value"
-          >{projectStore.currentProject.config.search.persistent.search_query}</span
-        >
+    <Panel title="Estado">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-value">{executionStore.stats.bounds_processed}</span>
+          <span class="stat-label">Bounds analizados</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{executionStore.stats.bounds_remaining}</span>
+          <span class="stat-label">Bounds restantes</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{executionStore.stats.results_found}</span>
+          <span class="stat-label">Resultados</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{executionStore.stats.phones_found}</span>
+          <span class="stat-label">Teléfonos</span>
+        </div>
       </div>
-      <div class="info-item">
-        <span class="info-label">Zoom</span>
-        <span class="info-value"
-          >{projectStore.currentProject.config.search.persistent.zoom}</span
-        >
-      </div>
-      <div class="info-item">
-        <span class="info-label">Base de datos</span>
-        <span class="info-value"
-          >{projectStore.currentProject.config.db.database}@{projectStore.currentProject.config.db.host}</span
-        >
-      </div>
-      <div class="info-item">
-        <span class="info-label">Ejecutado</span>
-        <span class="info-value"
-          >{projectStore.currentProject.started ? "Sí" : "No"}</span
-        >
-      </div>
-    </div>
+    </Panel>
   </div>
-
-  <div class="panel">
-    <h4>Estado</h4>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <span class="stat-value">--</span>
-        <span class="stat-label">Bounds analizados</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">--</span>
-        <span class="stat-label">Bounds restantes</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">--</span>
-        <span class="stat-label">Resultados</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">--</span>
-        <span class="stat-label">Teléfonos</span>
-      </div>
-    </div>
-  </div> 
 {/if}
 
 <style>
-  .panel { 
-    background-color: var(--card-bg);
-    border: 0px;
-    border-radius: 8px;
-    padding: 16px;
+  .info-panels {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-width: 0;
-    margin-top: 20px;
-  }
-
-  .panel h4 {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--primary);
+    gap: 20px;
   }
 
   .info-grid {
@@ -133,5 +146,4 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-
 </style>

@@ -2,6 +2,7 @@ import type { LogEntry, IterationStats, Config } from "../types";
 import {
   runScraping,
   cancelScraping,
+  fetchProjectStats,
   onVerboserEvent,
   onScrapingStarted,
   onScrapingFinished,
@@ -35,7 +36,10 @@ class ExecutionStore {
   }
 
   async startExecution(config: Config): Promise<void> {
+    const savedBoundsTotal = this.stats.bounds_total;
     this.resetExecution();
+    this.stats.bounds_total = savedBoundsTotal;
+    this.stats.bounds_remaining = savedBoundsTotal;
     this.configSnapshot = JSON.parse(JSON.stringify(config));
     this.isRunning = true;
     appStore.navigate("execution");
@@ -86,21 +90,53 @@ class ExecutionStore {
     this.configSnapshot = null;
   }
 
+  private updateStatsFromEvent(kind: string, message: string): void {
+    if (kind === "released_bound") {
+      this.stats.bounds_processed++;
+      if (this.stats.bounds_remaining > 0) {
+        this.stats.bounds_remaining--;
+      }
+    }
+    if (kind === "written_coincidences") {
+      const m = message.match(/^(\d+).*\((\d+)/);
+      if (m) {
+        this.stats.results_found += parseInt(m[1]);
+        this.stats.phones_found = parseInt(m[2]);
+      }
+    }
+    if(kind === ""){
+      
+    }
+  }
+
   setupExecutionListeners(): () => void {
     const unlisteners: Array<() => void> = [];
 
     onVerboserEvent((payload) => {
       this.addLog(payload.kind, payload.message);
+      this.updateStatsFromEvent(payload.kind, payload.message);
     }).then((fn) => unlisteners.push(fn));
 
     onScrapingStarted(() => {
       this.isRunning = true;
     }).then((fn) => unlisteners.push(fn));
 
-    onScrapingFinished(() => {
+    onScrapingFinished(async () => {
       this.isRunning = false;
       this.isCancelling = false;
       this.addLog("info", "Scraping finalizado");
+      if (this.configSnapshot) {
+        try {
+          const fresh = await fetchProjectStats(this.configSnapshot);
+          this.stats.bounds_total = fresh.bounds_total;
+          this.stats.bounds_processed = fresh.bounds_processed;
+          this.stats.bounds_remaining = fresh.bounds_remaining;
+          this.stats.results_found = fresh.results_found;
+          this.stats.phones_found = fresh.phones_found;
+        } catch {
+          // keep incremental values if fetch fails
+        }
+      }
     }).then((fn) => unlisteners.push(fn));
 
     return () => {

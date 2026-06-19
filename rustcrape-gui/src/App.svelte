@@ -9,15 +9,12 @@
   import { appStore } from "./lib/stores/app.store.svelte";
   import { projectStore } from "./lib/stores/project.store.svelte";
   import { executionStore } from "./lib/stores/execution.store.svelte";
-  import { loadGlobalSettings, checkAnnouncement } from "./lib/tauri";
+  import { loadGlobalSettings } from "./lib/tauri";
 
   $effect(() => {
     projectStore.loadProjects();
     loadGlobalSettings().then((s) => {
       appStore.updateGlobalSettings(s);
-    });
-    checkAnnouncement().then((a) => {
-      appStore.announcement = a;
     });
     const cleanup = executionStore.setupExecutionListeners();
     return () => cleanup();

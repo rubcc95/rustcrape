@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LogEntry } from "../lib/types";
+  import Panel from "./Panel.svelte";
 
   let { logs }: { logs: LogEntry[] } = $props();
   let terminalEl: HTMLDivElement | undefined = $state();
@@ -13,9 +14,7 @@
   });
 </script>
 
-<div class="panel">
-    <h4>Log</h4>
-  
+<Panel title="Log" flex >
   <div class="log-output" bind:this={terminalEl}>
     {#each logs as log (log.id)}
       <div class="log-entry log-{log.kind}">
@@ -27,33 +26,16 @@
       <div class="log-empty">Esperando eventos...</div>
     {/if}
   </div>
-</div>
+</Panel>
 
 <style>
-  .panel {
-    flex: 1;
-    background: var(--card-bg, #1f2b47);
-    border: 0px;
-    border-radius: 8px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    min-height: 200px;
-  }
-
-  .panel h4 {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--primary);
-  }
 
   .log-output {
-    flex: 1;
     overflow-y: auto;
-    padding: 8px 0ox;
-    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    min-height: 200px;
+    max-height: calc(100vh - 420px);
+    padding: 8px 0;
+    font-family: "Consolas", "JetBrains Mono", "Fira Code", monospace;
     font-size: 12px;
     line-height: 1.6;
   }

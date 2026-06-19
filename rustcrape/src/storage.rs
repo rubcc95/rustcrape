@@ -9,6 +9,6 @@ pub trait Persistence: Send + Sync {
         &self,
         bound_id: i64,
         completed: Option<(i32, i32)>,
-    ) -> Result<bool>;
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64>;
+    ) -> Result<bool>;    
+    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<(u64, u64)>;
 }

@@ -22,14 +22,12 @@ pub fn run() {
             commands::list_configs,
             commands::save_config,
             commands::delete_config,
-            commands::get_last_selected,
-            commands::set_last_selected,
             commands::run_scraping,
             commands::cancel_scraping,
             commands::pick_executable,
             commands::load_global_settings,
             commands::save_global_settings,
-            commands::check_announcement,
+            commands::fetch_project_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

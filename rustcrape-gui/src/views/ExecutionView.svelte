@@ -2,12 +2,12 @@
   import { executionStore } from "../lib/stores/execution.store.svelte";
   import LogTerminal from "../components/LogTerminal.svelte";
   import ProgressPanel from "../components/ProgressPanel.svelte";
+  import Panel from "../components/Panel.svelte";
 </script>
 
 <div class="execution-view">
   <div class="execution-panels">
-    <div class="panel config-panel">
-      <h4>Configuración utilizada</h4>
+    <Panel title="Configuración utilizada" flex gap="0" class="config-panel">
       {#if executionStore.configSnapshot}
         <div class="config-info">
           <div class="config-row">
@@ -55,7 +55,7 @@
       {:else}
         <p class="text-muted">Sin datos de configuración</p>
       {/if}
-    </div>
+    </Panel>
 
     <ProgressPanel stats={executionStore.stats} />
   </div>
@@ -66,11 +66,9 @@
 <style>
 
   .execution-view {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
     width: 90%;
     margin: 0 auto;
+    overflow: hidden;
   }
 
   @media(min-width: 980px){
@@ -83,22 +81,6 @@
     display: flex;
     gap: 24px;
     margin-bottom: 16px;
-  }
-
-  .panel {
-    flex: 1;
-    background: var(--card-bg, #1f2b47);
-    border: 0px;
-    border-radius: 8px;
-    padding: 16px;
-  }
- 
-  .panel h4 {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--primary, #8892b0);
   }
 
   .config-info {

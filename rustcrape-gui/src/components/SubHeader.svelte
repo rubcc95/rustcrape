@@ -2,6 +2,7 @@
   import { appStore } from "../lib/stores/app.store.svelte";
   import { projectStore } from "../lib/stores/project.store.svelte";
   import { executionStore } from "../lib/stores/execution.store.svelte";
+  import Modal from "./Modal.svelte";
 
   let showDeleteConfirm = $state(false);
   let statusMessage = $state("");
@@ -58,17 +59,16 @@
   {#if appStore.currentRoute === "project"}
     <div class="sub-header-left">
       <button class="btn-run" onclick={onRun}>▶ Ejecutar</button>
-      {#if !projectStore.isNewProject}
+      {#if projectStore.currentProject !== null}
         <button class="btn-primary" onclick={onSave}>Guardar</button>
-        {#if !showDeleteConfirm}
-          <button class="btn-danger" onclick={() => (showDeleteConfirm = true)}>Eliminar</button>
-        {:else}
-          <div class="confirm-inline">
-            <span class="confirm-text">¿Eliminar?</span>
-            <button class="btn-danger" onclick={onDelete}>Sí, eliminar</button>
-            <button class="btn-small" onclick={() => (showDeleteConfirm = false)}>No</button>
-          </div>
-        {/if}
+        <button class="btn-danger" onclick={() => (showDeleteConfirm = true)}>Eliminar</button>
+        <Modal
+          open={showDeleteConfirm}
+          title="Eliminar proyecto"
+          message="¿Estás seguro de que quieres eliminar este proyecto?"
+          onConfirm={onDelete}
+          onCancel={() => (showDeleteConfirm = false)}
+        />
       {/if}
     </div>
 
@@ -144,21 +144,6 @@
     border: 1px solid var(--border, #2a3a5c);
     font-size: 13px;
     font-family: var(--font);
-  }
-
-  .confirm-inline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
-    background: rgba(231, 76, 60, 0.1);
-    border: 1px solid var(--danger, #e74c3c);
-    border-radius: 6px;
-  }
-
-  .confirm-text {
-    font-size: 13px;
-    color: var(--danger, #e74c3c);
   }
 
   .status-msg {
