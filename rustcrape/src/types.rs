@@ -27,7 +27,7 @@ pub struct Coincidence {
     pub email: Option<String>,
     pub web: Option<String>,
     pub tfno: Option<String>,
-    pub maps_url: String,
+    pub maps: String,
 }
  
 #[derive(Debug, Clone, Serialize, Deserialize)]

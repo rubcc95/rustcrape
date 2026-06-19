@@ -276,7 +276,7 @@ async fn scrape_single(
                 tfno,
                 email,
                 web,
-                maps_url: clean_maps_url(&current_url),
+                maps: clean_maps_url(&current_url),
             }]);
         }
     }
@@ -406,7 +406,7 @@ async fn scrape_feed(
                         tfno,
                         email,
                         web,
-                        maps_url: clean_maps_url(&href),
+                        maps: clean_maps_url(&href),
                     });
                 }
                 Err(e) => {
