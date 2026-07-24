@@ -151,17 +151,23 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
 fn strip_website(label: &str) -> String {
     let label = label.trim();
     let lower = label.to_lowercase();
-    if lower.starts_with("sitio web") {
-        let after = &label["sitio web".len()..];
-        let after = if after.starts_with(':') {
-            &after[1..]
-        } else {
-            after
-        };
-        after.trim().to_string()
-    } else {
-        label.to_string()
+
+    let prefixes = [
+        "visitar el sitio web de ",
+        "visitar sitio web de ",
+        "visitar sitio web ",
+        "sitio web de ",
+        "sitio web: ",
+        "sitio web ",
+    ];
+
+    for prefix in &prefixes {
+        if lower.starts_with(prefix) {
+            return label[prefix.len()..].trim().to_string();
+        }
     }
+
+    label.to_string()
 }
 
 fn extract_phone_suffix(label: &str) -> Option<String> {
@@ -226,11 +232,7 @@ async fn extract_current_result(
         );
         match page.find_element(sel).await {
             Ok(el) => {
-                let mut web = el
-                    .attribute("aria-label")
-                    .await?
-                    .map(|a| strip_website(&a))
-                    .filter(|s| !s.is_empty());
+                let mut web = el.attribute("href").await?.filter(|s| !s.is_empty());
 
                 if web.is_none() {
                     let tag = el.string_property("tagName").await?.unwrap_or_default();
@@ -242,7 +244,11 @@ async fn extract_current_result(
                 }
 
                 if web.is_none() {
-                    web = el.attribute("href").await?.filter(|s| !s.is_empty());
+                    web = el
+                        .attribute("aria-label")
+                        .await?
+                        .map(|a| strip_website(&a))
+                        .filter(|s| !s.is_empty());
                 }
 
                 web
@@ -283,6 +289,7 @@ async fn scrape_single(
     Ok(Vec::new())
 }
 
+#[allow(dead_code)]
 fn extract_name_from_href(href: &str) -> String {
     let start = "/maps/place/";
     if let Some(pos) = href.find(start) {
@@ -298,19 +305,22 @@ fn extract_name_from_href(href: &str) -> String {
             .next()
             .unwrap_or("")
             .replace('+', " ");
-        // manual URL percent-decode (no lazy, no regex)
-        let mut decoded = String::with_capacity(segment.len());
+        // manual URL percent-decode, collecting bytes first for correct UTF-8
+        let mut bytes = Vec::with_capacity(segment.len());
         let mut chars = segment.chars();
         while let Some(c) = chars.next() {
             if c == '%' {
                 let hi = chars.next().and_then(|c| c.to_digit(16)).unwrap_or(0);
                 let lo = chars.next().and_then(|c| c.to_digit(16)).unwrap_or(0);
-                decoded.push(char::from((hi * 16 + lo) as u8));
+                bytes.push((hi * 16 + lo) as u8);
             } else {
-                decoded.push(c);
+                // push each byte of the UTF-8 representation
+                let mut buf = [0u8; 4];
+                let s = c.encode_utf8(&mut buf);
+                bytes.extend_from_slice(s.as_bytes());
             }
         }
-        return decoded;
+        return String::from_utf8(bytes).unwrap_or_default();
     }
     String::new()
 }
@@ -381,8 +391,6 @@ async fn scrape_feed(
                 continue;
             };
 
-            let name = extract_name_from_href(&href);
-
             let (lat, lng) = extract_coords_from_href(&href);
 
             if lat != 0.0 && lng != 0.0 {
@@ -397,12 +405,40 @@ async fn scrape_feed(
                 }
             }
 
+            let old_name: String = page
+                .evaluate("document.querySelector('h1.DUwDvf')?.textContent?.trim() ?? ''")
+                .await?
+                .into_value()?;
+
             el.click().await?;
+
+            let _ = wait_until(
+                || async {
+                    let current: String = page
+                        .evaluate("document.querySelector('h1.DUwDvf')?.textContent?.trim() ?? ''")
+                        .await?
+                        .into_value()?;
+                    Ok((current != old_name && !current.is_empty()).then_some(()))
+                },
+                Duration::from_millis(100),
+                Duration::from_secs(5),
+            )
+            .await;
+
+            let panel_name: String = page
+                .evaluate("document.querySelector('h1.DUwDvf')?.textContent?.trim() ?? ''")
+                .await?
+                .into_value()?;
+
+            if panel_name.is_empty() {
+                continue;
+            }
+
             match extract_current_result(page).await {
                 Ok((tfno, email, web)) => {
-                    verboser.processed_coincidence(&name, coincidences.len() + 1);
+                    verboser.processed_coincidence(&panel_name, coincidences.len() + 1);
                     coincidences.push(Coincidence {
-                        name,
+                        name: panel_name,
                         tfno,
                         email,
                         web,

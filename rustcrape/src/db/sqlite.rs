@@ -200,12 +200,13 @@ impl Persistence for SqlitePersistence {
             return Ok(0);
         }
         let mut builder =
-            sqlx::QueryBuilder::new("INSERT OR IGNORE INTO coincidences (name, web, email, tfno) ");
+            sqlx::QueryBuilder::new("INSERT OR IGNORE INTO coincidences (name, web, email, tfno, maps) ");
         builder.push_values(filtered, |mut b, c| {
             b.push_bind(c.name);
             b.push_bind(c.web.unwrap_or_default());
             b.push_bind(c.email.unwrap_or_default());
             b.push_bind(c.tfno.unwrap_or_default());
+            b.push_bind(&c.maps);
         });
         let result = builder.build().execute(&self.pool).await?;
         Ok(result.rows_affected() as u64)
