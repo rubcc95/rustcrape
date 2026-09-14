@@ -1,16 +1,18 @@
 use anyhow::Result;
 use serde::Deserialize;
 
+use crate::browser::dismiss_dialogs;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, EmpresiteConfig};
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
-use chromiumoxide::cdp::browser_protocol::input::{
-    DispatchKeyEventParams, DispatchKeyEventType,
-};
+use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
+
+/// Numero de intentos de rotacion de VPN antes de pasar al plan C.
+const VPN_ROTATION_ATTEMPTS: usize = 2;
 
 /// Retardo pseudo-aleatorio entre peticiones, dentro del rango configurado.
 fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
@@ -107,12 +109,12 @@ async fn has_next_page(page: &Page, current: u32) -> Result<bool> {
 // --- Captcha -----------------------------------------------------------------
 
 /// Indica si la pagina actual es la de bloqueo (429 + reCAPTCHA).
-async fn is_blocked(page: &Page) -> Result<bool> {
+async fn has_captcha(page: &Page) -> Result<bool> {
     let js = r#"(() => {
         if (document.querySelector("iframe[src*='recaptcha/api2/anchor']")) return true;
         const t = document.body ? document.body.innerText : '';
         return t.includes('Demasiadas peticiones');
-    })()"#;    
+    })()"#;
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
@@ -134,7 +136,9 @@ async fn press_key(page: &Page, key: &str, code: &str, vk: i64) -> Result<()> {
         .native_virtual_key_code(vk)
         .build()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    page.execute(down).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    page.execute(down)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     page.execute(up).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }
@@ -262,7 +266,7 @@ async fn try_solve_captcha(page: &Page, verboser: &dyn Verboser) -> Result<bool>
     submit_captcha(page).await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    Ok(!is_blocked(page).await?)
+    Ok(!has_captcha(page).await?)
 }
 
 /// Espera (sin timeout) a que el usuario resuelva el captcha manualmente.
@@ -281,7 +285,7 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
             ));
         }
 
-        let blocked = match is_blocked(page).await {
+        let blocked = match has_captcha(page).await {
             Ok(blocked) => blocked,
             Err(_) => return Err(anyhow::anyhow!("el navegador se cerro durante el captcha")),
         };
@@ -301,7 +305,7 @@ async fn ensure_unblocked(
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<()> {
-    if !is_blocked(page).await? {
+    if !has_captcha(page).await? {
         return Ok(());
     }
 
@@ -314,24 +318,37 @@ async fn ensure_unblocked(
     }
 
     // Plan B: rotar VPN y reintentar. Si falla o no hay VPN -> Plan C.
-    let rotated = match vpn.force_rotate(verboser).await {
-        Ok(rotated) => rotated,
-        Err(err) => {
-            verboser.warn(&format!("VPN: error al rotar: {err}"));
-            false
-        }
-    };
+    for _ in 0..VPN_ROTATION_ATTEMPTS {
+        let rotated = match vpn.force_rotate(verboser).await {
+            Ok(rotated) => rotated,
+            Err(err) => {
+                verboser.warn(&format!("VPN: error al rotar: {err}"));
+                false
+            }
+        };
 
-    if rotated {
+        if !rotated {
+            break;
+        }
+
         verboser.warn("VPN rotada; recargando pagina");
 
         let current = page.url().await?.unwrap_or_default();
         if !current.is_empty() {
             let _ = page.goto(current).await;
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
 
-        if !is_blocked(page).await? {
+        // Espera a que la pagina recargada deje de mostrar el captcha; si la
+        // nueva IP no basta, se intenta resolverlo de nuevo.
+        let cleared = wait_until(
+            || async { Ok((!has_captcha(page).await?).then_some(())) },
+            Duration::from_millis(300),
+            Duration::from_secs(15),
+        )
+        .await
+        .is_ok();
+
+        if cleared {
             return Ok(());
         }
 
@@ -388,14 +405,14 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
 /// Estado de carga de una ficha: `Some(true)` si la pagina esta bloqueada,
 /// `Some(false)` si el h1 ya tiene texto, `None` si aun no esta lista.
 async fn detail_state(page: &Page) -> Result<Option<bool>> {
-    if is_blocked(page).await? {
+    if has_captcha(page).await? {
         return Ok(Some(true));
     }
     let name: String = page
         .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
         .await?
         .into_value()?;
-    Ok((!name.is_empty()).then_some(false))
+    Ok(Some(!name.is_empty()))
 }
 
 /// Limpia el email: quita `mailto:` y cualquier query (`?subject=...`).
@@ -434,7 +451,10 @@ fn clean_tfno(raw: &str) -> Option<String> {
 /// Normaliza la URL de origen de Empresite.
 fn clean_empresite_url(url: &str) -> String {
     let base = url.split('?').next().unwrap_or(url);
-    base.trim().strip_suffix('/').unwrap_or(base.trim()).to_string()
+    base.trim()
+        .strip_suffix('/')
+        .unwrap_or(base.trim())
+        .to_string()
 }
 
 /// Convierte el texto de la actividad en un slug apto para la URL de Empresite:
@@ -452,7 +472,7 @@ fn activity_slug(query: &str) -> String {
             'Ç' => 'C',
             'Ñ' => 'N',
             other => other,
-        };        
+        };
         if ch.is_ascii_alphanumeric() || ch == '_' {
             slug.push(ch);
         } else if ch.is_whitespace() || ch == '-' {
@@ -468,7 +488,6 @@ fn activity_slug(query: &str) -> String {
 enum DetailOutcome {
     Found(Coincidence),
     Skipped,
-    Blocked,
 }
 
 /// Scrapea una ficha de empresa abriendo una pestaña nueva.
@@ -481,6 +500,7 @@ async fn scrape_detail(
     count: usize,
 ) -> Result<DetailOutcome> {
     let detail_page = browser.new_page(link).await?;
+    dismiss_dialogs(detail_page.clone());
 
     // Sondea hasta que la ficha este lista (h1 disponible) o aparezca un
     // bloqueo, en vez de esperar a que termine la navegacion completa.
@@ -493,9 +513,7 @@ async fn scrape_detail(
     .unwrap_or(false);
 
     if blocked {
-        if let Err(err) = ensure_unblocked(&detail_page, config, vpn, verboser)
-            .await
-        {
+        if let Err(err) = ensure_unblocked(&detail_page, config, vpn, verboser).await {
             let _ = detail_page.close().await?;
             return Err(err);
         }
@@ -553,6 +571,7 @@ pub async fn scrape(
     };
 
     let page = browser.new_page(&url).await?;
+    dismiss_dialogs(page.clone());
     let _ = page.wait_for_navigation().await;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -572,7 +591,6 @@ pub async fn scrape(
     let has_more = has_next_page(&page, params.page).await?;
 
     let mut coincidences = Vec::new();
-    let mut blocked = false;
     for (idx, link) in links.into_iter().enumerate() {
         if verboser.is_cancelled() {
             break;
@@ -583,20 +601,11 @@ pub async fn scrape(
         match scrape_detail(browser, &link, config, vpn, verboser, idx + 1).await {
             Ok(DetailOutcome::Found(coincidence)) => coincidences.push(coincidence),
             Ok(DetailOutcome::Skipped) => {}
-            Ok(DetailOutcome::Blocked) => {
-                blocked = true;
-                break;
-            }
             Err(err) => verboser.warn(&format!("Error extrayendo ficha {}: {}", link, err)),
         }
     }
 
     // Si una ficha quedo bloqueada, reintentar la pagina entera mas tarde.
-    if blocked {
-        return Err(anyhow::anyhow!(
-            "captcha irresoluble durante el scraping de fichas"
-        ));
-    }
 
     Ok(ScrapeResult::new(coincidences, has_more))
 }
@@ -670,7 +679,10 @@ mod tests {
 
     #[test]
     fn test_activity_slug_acentos_y_espacios() {
-        assert_eq!(activity_slug("  fontanería y calefacción "), "FONTANERIA-Y-CALEFACCION");
+        assert_eq!(
+            activity_slug("  fontanería y calefacción "),
+            "FONTANERIA-Y-CALEFACCION"
+        );
     }
 
     #[test]
