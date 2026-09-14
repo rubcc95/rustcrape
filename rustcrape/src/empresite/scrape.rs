@@ -1,18 +1,16 @@
 use anyhow::Result;
 use serde::Deserialize;
 
-use crate::browser::dismiss_dialogs;
+//use crate::browser::dismiss_dialogs;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, EmpresiteConfig};
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
+use chromiumoxide::cdp::browser_protocol::page::ReloadParams;
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
-
-/// Numero de intentos de rotacion de VPN antes de pasar al plan C.
-const VPN_ROTATION_ATTEMPTS: usize = 2;
 
 /// Retardo pseudo-aleatorio entre peticiones, dentro del rango configurado.
 fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
@@ -299,61 +297,53 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 }
 
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
-async fn ensure_unblocked(
+async fn unblock(
     page: &Page,
     config: &EmpresiteConfig,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<()> {
-    if !has_captcha(page).await? {
-        return Ok(());
-    }
+    loop {
+        verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
-    verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
+        // Plan A: click automatico.
+        if try_solve_captcha(page, verboser).await? {
+            verboser.warn("Captcha resuelto automaticamente");
+            return Ok(());
+        }
 
-    // Plan A: click automatico.
-    if try_solve_captcha(page, verboser).await? {
-        verboser.warn("Captcha resuelto automaticamente");
-        return Ok(());
-    }
-
-    // Plan B: rotar VPN y reintentar. Si falla o no hay VPN -> Plan C.
-    for _ in 0..VPN_ROTATION_ATTEMPTS {
-        let rotated = match vpn.force_rotate(verboser).await {
-            Ok(rotated) => rotated,
-            Err(err) => {
-                verboser.warn(&format!("VPN: error al rotar: {err}"));
-                false
-            }
-        };
-
-        if !rotated {
+        // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
+        // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
+        // se completa pero el captcha persiste, el bucle prueba con otra IP.
+        if !vpn.force_rotate(verboser).await? {
             break;
         }
-
         verboser.warn("VPN rotada; recargando pagina");
 
-        let current = page.url().await?.unwrap_or_default();
-        if !current.is_empty() {
-            let _ = page.goto(current).await;
-        }
+        // Recarga real, ignorando cache y sin bloquear en wait_for_navigation;
+        // el estado se comprueba en el wait_until de readyState de abajo.
+        page.execute(ReloadParams::builder().ignore_cache(true).build())
+            .await?;
 
-        // Espera a que la pagina recargada deje de mostrar el captcha; si la
-        // nueva IP no basta, se intenta resolverlo de nuevo.
-        let cleared = wait_until(
-            || async { Ok((!has_captcha(page).await?).then_some(())) },
+        // Espera a que la pagina recargada termine de cargar y deje de mostrar
+        // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
+        let blocked = wait_until(
+            || async {
+                if is_detail_loaded(&page).await? {
+                    return Ok(Some(false));
+                }
+                if has_captcha(&page).await? {
+                    return Ok(Some(true));
+                }
+                Ok(None)
+            },
             Duration::from_millis(300),
             Duration::from_secs(15),
         )
-        .await
-        .is_ok();
+        .await?;
 
-        if cleared {
-            return Ok(());
-        }
-
-        if try_solve_captcha(page, verboser).await? {
-            return Ok(());
+        if !blocked {
+            break;
         }
     }
 
@@ -402,17 +392,29 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
+async fn is_detail_loaded(page: &Page) -> Result<bool> {
+    Ok(!page
+        .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
+        .await?
+        .into_value::<String>()?
+        .is_empty())
+}
 /// Estado de carga de una ficha: `Some(true)` si la pagina esta bloqueada,
 /// `Some(false)` si el h1 ya tiene texto, `None` si aun no esta lista.
 async fn detail_state(page: &Page) -> Result<Option<bool>> {
     if has_captcha(page).await? {
         return Ok(Some(true));
     }
-    let name: String = page
+    let has_name = page
         .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
         .await?
-        .into_value()?;
-    Ok(Some(!name.is_empty()))
+        .into_value::<String>()?
+        .is_empty();
+
+    Ok(match has_name {
+        true => None,
+        false => Some(true),
+    })
 }
 
 /// Limpia el email: quita `mailto:` y cualquier query (`?subject=...`).
@@ -500,12 +502,20 @@ async fn scrape_detail(
     count: usize,
 ) -> Result<DetailOutcome> {
     let detail_page = browser.new_page(link).await?;
-    dismiss_dialogs(detail_page.clone());
+    //dismiss_dialogs(&detail_page).await;
 
     // Sondea hasta que la ficha este lista (h1 disponible) o aparezca un
     // bloqueo, en vez de esperar a que termine la navegacion completa.
     let blocked = wait_until(
-        || detail_state(&detail_page),
+        || async {
+            if is_detail_loaded(&detail_page).await? {
+                return Ok(Some(false));
+            }
+            if has_captcha(&detail_page).await? {
+                return Ok(Some(true));
+            }
+            Ok(None)
+        },
         Duration::from_millis(200),
         Duration::from_secs(15),
     )
@@ -513,7 +523,7 @@ async fn scrape_detail(
     .unwrap_or(false);
 
     if blocked {
-        if let Err(err) = ensure_unblocked(&detail_page, config, vpn, verboser).await {
+        if let Err(err) = unblock(&detail_page, config, vpn, verboser).await {
             let _ = detail_page.close().await?;
             return Err(err);
         }
@@ -571,7 +581,7 @@ pub async fn scrape(
     };
 
     let page = browser.new_page(&url).await?;
-    dismiss_dialogs(page.clone());
+    // dismiss_dialogs(&page).await;
     let _ = page.wait_for_navigation().await;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -583,7 +593,7 @@ pub async fn scrape(
     }
 
     // El listado puede venir bloqueado por captcha.
-    ensure_unblocked(&page, config, vpn, verboser).await?;
+    unblock(&page, config, vpn, verboser).await?;
 
     let links = extract_company_links(&page).await?;
     verboser.found_multiple_coincidences();

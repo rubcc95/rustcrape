@@ -2,9 +2,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chromiumoxide::cdp::browser_protocol::page::{
-    EventJavascriptDialogOpening, HandleJavaScriptDialogParams,
+    EventJavascriptDialogOpening, HandleJavaScriptDialogParams, HandleJavaScriptDialogReturns,
 };
 use chromiumoxide::handler::viewport::Viewport;
+use chromiumoxide::types::CommandResponse;
 use chromiumoxide::{Browser as COxideBrowser, BrowserConfig, Page};
 use futures::StreamExt;
 use rand::Rng;
@@ -114,25 +115,23 @@ fn find_browser() -> Option<PathBuf> {
     None
 }
 
-/// Responde automaticamente a los dialogos JS (`alert`, `confirm`, `prompt`).
-///
-/// Con el dominio `Page` activo un `alert` bloquea la ejecucion JS del renderer
-/// hasta que se responde; sin handler, las evaluaciones posteriores se quedan
-/// colgadas. Esta tarea los descarta en cuanto aparecen.
-pub fn dismiss_dialogs(page: Page) {
-    tokio::spawn(async move {
-        let Ok(mut events) = page.event_listener::<EventJavascriptDialogOpening>().await else {
-            return;
-        };
+// /// Responde automaticamente a los dialogos JS (`alert`, `confirm`, `prompt`).
+// ///
+// /// Con el dominio `Page` activo un `alert` bloquea la ejecucion JS del renderer
+// /// hasta que se responde; sin handler, las evaluaciones posteriores se quedan
+// /// colgadas. Esta tarea los descarta en cuanto aparecen.
+// pub async fn dismiss_dialogs(page: &Page) -> Result<()> {
+//     //tokio::spawn(async move {
+//     let Ok(mut events) = page.event_listener::<EventJavascriptDialogOpening>().await else {
+//         return Ok(());
+//     };
 
-        while events.next().await.is_some() {
-            let _ = page
-                .execute(HandleJavaScriptDialogParams::new(false))
-                .await;
-        }
-    });
-}
+//     while events.next().await.is_some() {
+//         page.execute(HandleJavaScriptDialogParams::new(false)).await?;
+//     }
 
+//     Ok(())
+// }
 pub struct Browser {
     browser: COxideBrowser,
 }
