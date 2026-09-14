@@ -34,28 +34,31 @@ fn random_country() -> &'static str {
     VPN_COUNTRIES[idx]
 }
 
-pub fn nordvpn_available(nordvpn_path: &Path) -> bool {
-    nordvpn_path.exists()
-}
-
-pub async fn rotate_vpn(nordvpn_path: &Path, verboser: &dyn Verboser) -> bool {
+pub async fn rotate_vpn(nordvpn_path: &Path, verboser: &dyn Verboser) -> std::io::Result<bool> {
     verboser.vpn_rotating();
 
-    let _ = Command::new(nordvpn_path).arg("-d").kill_on_drop(true).status().await;
+    let status = Command::new(nordvpn_path)
+        .arg("-d")
+        .kill_on_drop(true)
+        .status()
+        .await?;
+
+    if !status.success() {
+        return Ok(false);
+    }
 
     let connected = Command::new(nordvpn_path)
         .args(["-c", "-g", random_country()])
         .kill_on_drop(true)
         .status()
         .await
-        .map(|status| status.success())
-        .unwrap_or(false);
+        .map(|status| status.success())?;
 
     if connected {
         verboser.vpn_rotated();
     }
 
-    connected
+    Ok(connected)
 }
 
 /// Rotador de VPN compartido por todos los targets. Rota globalmente cada
@@ -87,36 +90,28 @@ impl VpnRotator {
         if !should_rotate {
             return;
         }
-
-        let Some(path) = &self.path else {
-            return;
-        };
-
-        if nordvpn_available(path) {
+        if let Some(path) = &self.path {
             let _ = rotate_vpn(path, verboser).await;
         } else {
             verboser.vpn_not_available();
+            return;
         }
     }
 
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si no hay VPN configurada, no esta
     /// disponible o fallo la conexion.
-    pub async fn force_rotate(&self, verboser: &dyn Verboser) -> bool {
-        let Some(path) = &self.path else {
-            return false;
-        };
-
-        if !nordvpn_available(path) {
+    pub async fn force_rotate(&self, verboser: &dyn Verboser) -> std::io::Result<bool> {
+        if let Some(path) = &self.path {
+            let rotated = rotate_vpn(path, verboser).await?;
+            if rotated {
+                let mut counter = self.counter.lock().unwrap();
+                *counter = 0;
+            }
+            Ok(rotated)
+        } else {
             verboser.vpn_not_available();
-            return false;
+            return Ok(false);
         }
-
-        let rotated = rotate_vpn(path, verboser).await;
-        if rotated {
-            let mut counter = self.counter.lock().unwrap();
-            *counter = 0;
-        }
-        rotated
     }
 }

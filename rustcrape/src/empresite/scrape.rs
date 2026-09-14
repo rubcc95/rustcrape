@@ -372,7 +372,7 @@ async fn ensure_unblocked(
     }
 
     // Plan B: rotar VPN y reintentar.
-    if vpn.force_rotate(verboser).await {
+    if vpn.force_rotate(verboser).await? {
         verboser.warn("VPN rotada; recargando pagina");
 
         let current = page.url().await?.unwrap_or_default();
