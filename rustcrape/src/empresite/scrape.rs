@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
@@ -9,8 +9,6 @@ use crate::vpn::VpnRotator;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
 };
-use chromiumoxide::cdp::browser_protocol::page::FrameId;
-use chromiumoxide::cdp::js_protocol::runtime::{EvaluateParams, ExecutionContextId};
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
 
@@ -47,20 +45,6 @@ where
         }
         tokio::time::sleep(interval).await;
     }
-}
-
-/// Evalua una expresion JS dentro del contexto de ejecucion de un frame.
-async fn eval_in_context<T: DeserializeOwned>(
-    page: &Page,
-    ctx: &ExecutionContextId,
-    js: &str,
-) -> Result<T> {
-    let params = EvaluateParams::builder()
-        .expression(js)
-        .context_id(ctx.clone())
-        .build()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-    Ok(page.evaluate(params).await?.into_value()?)
 }
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
@@ -132,36 +116,26 @@ async fn is_blocked(page: &Page) -> Result<bool> {
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
-/// Localiza el frame del reCAPTCHA y su contexto de ejecucion.
-async fn anchor_context(page: &Page) -> Result<Option<(FrameId, ExecutionContextId)>> {
-    for frame_id in page.frames().await? {
-        let Some(url) = page.frame_url(frame_id.clone()).await? else {
-            continue;
-        };
-        if !url.contains("recaptcha/api2/anchor") {
-            continue;
-        }
-        if let Some(ctx) = page.frame_execution_context(frame_id.clone()).await? {
-            return Ok(Some((frame_id, ctx)));
-        }
-    }
-    Ok(None)
-}
+/// Offset de la casilla dentro del iframe anchor de reCAPTCHA v2 (size=normal),
+/// medido sobre el widget estandar: la casilla de 28x28 esta en (12.7, 22.3),
+/// de modo que su centro cae en ~(27, 36).
+const CAPTCHA_CHECKBOX_X: f64 = 27.0;
+const CAPTCHA_CHECKBOX_Y: f64 = 36.0;
 
 #[derive(Debug, Deserialize)]
 struct Rect {
     x: f64,
     y: f64,
-    w: f64,
-    h: f64,
 }
 
 /// Clica la casilla del reCAPTCHA con eventos de raton reales (trusted).
 ///
-/// El `.click()` sintetico no vale: reCAPTCHA ignora eventos `isTrusted=false`.
-/// Calculamos las coordenadas (bounding box del iframe + rect interno) y
-/// despachamos mouseMoved/mousePressed/mouseReleased via CDP.
-async fn click_captcha_checkbox(page: &Page, ctx: &ExecutionContextId) -> Result<bool> {
+/// El iframe del reCAPTCHA es cross-origin (OOPIF): chromiumoxide no puede
+/// evaluar su interior (el execution context vive en otra sesion/servicio), asi
+/// que clicamos por coordenadas sobre la posicion conocida de la casilla dentro
+/// del iframe. El `.click()` sintetico no vale porque reCAPTCHA ignora eventos
+/// `isTrusted=false`.
+async fn click_captcha_checkbox(page: &Page) -> Result<bool> {
     // Posicion del iframe en el viewport de la pagina principal. Se usa
     // getBoundingClientRect (viewport-relative) para que case con las
     // coordenadas que espera Input.dispatchMouseEvent.
@@ -172,7 +146,7 @@ async fn click_captcha_checkbox(page: &Page, ctx: &ExecutionContextId) -> Result
                 if (!f) return null;
                 f.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
                 const r = f.getBoundingClientRect();
-                return { x: r.x, y: r.y, w: r.width, h: r.height };
+                return { x: r.x, y: r.y };
             })()"#,
         )
         .await?
@@ -182,25 +156,8 @@ async fn click_captcha_checkbox(page: &Page, ctx: &ExecutionContextId) -> Result
         return Ok(false);
     };
 
-    // Posicion de la casilla dentro del iframe (viewport del propio iframe).
-    let rect: Option<Rect> = eval_in_context(
-        page,
-        ctx,
-        r#"(() => {
-            const el = document.querySelector('#recaptcha-anchor');
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            return { x: r.x, y: r.y, w: r.width, h: r.height };
-        })()"#,
-    )
-    .await?;
-
-    let Some(rect) = rect else {
-        return Ok(false);
-    };
-
-    let cx = iframe_rect.x + rect.x + rect.w / 2.0;
-    let cy = iframe_rect.y + rect.y + rect.h / 2.0;
+    let cx = iframe_rect.x + CAPTCHA_CHECKBOX_X;
+    let cy = iframe_rect.y + CAPTCHA_CHECKBOX_Y;
 
     let dispatch = |event_type: DispatchMouseEventType, button: Option<(MouseButton, i64)>| {
         let mut builder = DispatchMouseEventParams::builder()
@@ -242,34 +199,41 @@ async fn click_captcha_checkbox(page: &Page, ctx: &ExecutionContextId) -> Result
     Ok(true)
 }
 
-/// Detecta si esta visible el reto de imagenes (bframe con tamano).
+/// Detecta si esta visible el reto de imagenes (bframe visible).
+///
+/// El bframe existe siempre en el DOM (incluso sin reto), pero oculto con
+/// `visibility: hidden` y desplazado fuera de la pantalla, por eso hay que
+/// comprobar la visibilidad y no solo el tamano.
 async fn image_challenge_visible(page: &Page) -> Result<bool> {
     let js = r#"(() => {
         for (const f of document.querySelectorAll('iframe')) {
             const s = f.getAttribute('src') || '';
-            if (s.includes('recaptcha/api2/bframe')) {
-                const r = f.getBoundingClientRect();
-                if (r.width > 0 && r.height > 0) return true;
-            }
+            if (!s.includes('recaptcha/api2/bframe')) continue;
+            const cs = getComputedStyle(f);
+            if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+            const r = f.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 && r.top > -1000) return true;
         }
         return false;
     })()"#;
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
-/// Sondea hasta que la casilla quede marcada o aparezca el reto de imagenes.
-async fn wait_checkbox_checked(page: &Page, ctx: &ExecutionContextId, timeout: Duration) -> bool {
+/// Lee el token de reCAPTCHA del textarea oculto del frame principal.
+///
+/// Se usa como senal de exito: cuando la casilla se supera, el widget rellena
+/// `g-recaptcha-response` en el documento principal.
+async fn captcha_token(page: &Page) -> Result<String> {
+    let js = r#"document.querySelector('textarea[name="g-recaptcha-response"]')?.value ?? ''"#;
+    Ok(page.evaluate(js).await?.into_value()?)
+}
+
+/// Sondea hasta que aparezca el token (casilla superada) o salte el reto.
+async fn wait_captcha_token(page: &Page, timeout: Duration) -> bool {
     let start = std::time::Instant::now();
     loop {
-        let checked: bool = eval_in_context(
-            page,
-            ctx,
-            "document.querySelector('#recaptcha-anchor')?.getAttribute('aria-checked') === 'true'",
-        )
-        .await
-        .unwrap_or(false);
-
-        if checked {
+        let token = captcha_token(page).await.unwrap_or_default();
+        if token.len() > 20 {
             return true;
         }
 
@@ -304,20 +268,16 @@ async fn submit_captcha(page: &Page) -> Result<()> {
 
 /// Intenta resolver el captcha automaticamente (Plan A). Devuelve si lo logro.
 async fn try_solve_captcha(page: &Page, verboser: &dyn Verboser) -> Result<bool> {
-    let Some((_frame_id, ctx)) = anchor_context(page).await? else {
-        verboser.warn("anchor_context falló!");
-        return Ok(false);
-    };
+    // El banner de consentimiento puede tapar la casilla o el boton.
+    let _ = accept_cookies(page).await;
 
-    if !click_captcha_checkbox(page, &ctx).await? {
-        
-        verboser.warn("click_captcha_checkbox falló!");
+    if !click_captcha_checkbox(page).await? {
+        verboser.warn("Captcha: no se encontro el iframe del anchor");
         return Ok(false);
     }
 
-    if !wait_checkbox_checked(page, &ctx, Duration::from_secs(10)).await {
-        verboser.warn("wait_checkbox_checked falló!");
-        //verboser.warn("Captcha: la casilla no se marco (posible reto de imagenes)");
+    if !wait_captcha_token(page, Duration::from_secs(10)).await {
+        verboser.warn("Captcha: la casilla no se supero (posible reto de imagenes)");
         return Ok(false);
     }
 
@@ -375,8 +335,16 @@ async fn ensure_unblocked(
         return Ok(());
     }
 
-    // Plan B: rotar VPN y reintentar.
-    if vpn.force_rotate(verboser).await? {
+    // Plan B: rotar VPN y reintentar. Si falla o no hay VPN -> Plan C.
+    let rotated = match vpn.force_rotate(verboser).await {
+        Ok(rotated) => rotated,
+        Err(err) => {
+            verboser.warn(&format!("VPN: error al rotar: {err}"));
+            false
+        }
+    };
+
+    if rotated {
         verboser.warn("VPN rotada; recargando pagina");
 
         let current = page.url().await?.unwrap_or_default();

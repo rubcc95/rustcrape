@@ -99,19 +99,46 @@ impl VpnRotator {
     }
 
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
-    /// la rotacion tuvo exito; `false` si no hay VPN configurada, no esta
-    /// disponible o fallo la conexion.
+    /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
+    /// configurada, no esta disponible o fallo la conexion.
     pub async fn force_rotate(&self, verboser: &dyn Verboser) -> std::io::Result<bool> {
-        if let Some(path) = &self.path {
-            let rotated = rotate_vpn(path, verboser).await?;
-            if rotated {
-                let mut counter = self.counter.lock().unwrap();
-                *counter = 0;
-            }
-            Ok(rotated)
-        } else {
-            verboser.vpn_not_available();
+        // VPN desactivada: la casilla de la GUI va ligada a la frecuencia de
+        // rotacion, de modo que `frequency == 0` significa que el usuario la
+        // desactivo. En ese caso no se rota aunque NordVPN este instalado.
+        if self.frequency == 0 {
             return Ok(false);
         }
+
+        let Some(path) = &self.path else {
+            verboser.vpn_not_available();
+            return Ok(false);
+        };
+
+        let rotated = rotate_vpn(path, verboser).await?;
+        if rotated {
+            let mut counter = self.counter.lock().unwrap();
+            *counter = 0;
+        }
+        Ok(rotated)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::verboser::DebugProgress;
+
+    #[tokio::test]
+    async fn test_force_rotate_con_vpn_desactivada_no_rota() {
+        // VPN desactivada (frecuencia 0): no debe rotar aunque haya ruta,
+        // sin importar que NordVPN este instalado.
+        let rotator = VpnRotator::new(Some("C:/nordvpn-irrelevante.exe".to_string()), 0);
+        assert!(!rotator.force_rotate(&DebugProgress).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_force_rotate_sin_ruta_no_rota() {
+        let rotator = VpnRotator::new(None, 5);
+        assert!(!rotator.force_rotate(&DebugProgress).await.unwrap());
     }
 }
