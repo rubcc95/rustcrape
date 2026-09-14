@@ -305,15 +305,19 @@ async fn submit_captcha(page: &Page) -> Result<()> {
 /// Intenta resolver el captcha automaticamente (Plan A). Devuelve si lo logro.
 async fn try_solve_captcha(page: &Page, verboser: &dyn Verboser) -> Result<bool> {
     let Some((_frame_id, ctx)) = anchor_context(page).await? else {
+        verboser.warn("anchor_context falló!");
         return Ok(false);
     };
 
     if !click_captcha_checkbox(page, &ctx).await? {
+        
+        verboser.warn("click_captcha_checkbox falló!");
         return Ok(false);
     }
 
     if !wait_checkbox_checked(page, &ctx, Duration::from_secs(10)).await {
-        verboser.warn("Captcha: la casilla no se marco (posible reto de imagenes)");
+        verboser.warn("wait_checkbox_checked falló!");
+        //verboser.warn("Captcha: la casilla no se marco (posible reto de imagenes)");
         return Ok(false);
     }
 
