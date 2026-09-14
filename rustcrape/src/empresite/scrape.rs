@@ -1,10 +1,16 @@
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, EmpresiteConfig};
 use crate::verboser::Verboser;
+use crate::vpn::VpnRotator;
+use chromiumoxide::cdp::browser_protocol::input::{
+    DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
+};
+use chromiumoxide::cdp::browser_protocol::page::FrameId;
+use chromiumoxide::cdp::js_protocol::runtime::{EvaluateParams, ExecutionContextId};
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
 
@@ -41,6 +47,20 @@ where
         }
         tokio::time::sleep(interval).await;
     }
+}
+
+/// Evalua una expresion JS dentro del contexto de ejecucion de un frame.
+async fn eval_in_context<T: DeserializeOwned>(
+    page: &Page,
+    ctx: &ExecutionContextId,
+    js: &str,
+) -> Result<T> {
+    let params = EvaluateParams::builder()
+        .expression(js)
+        .context_id(ctx.clone())
+        .build()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(page.evaluate(params).await?.into_value()?)
 }
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
@@ -99,6 +119,291 @@ async fn has_next_page(page: &Page, current: u32) -> Result<bool> {
     );
     Ok(page.evaluate(js).await?.into_value()?)
 }
+
+// --- Captcha -----------------------------------------------------------------
+
+/// Indica si la pagina actual es la de bloqueo (429 + reCAPTCHA).
+async fn is_blocked(page: &Page) -> Result<bool> {
+    let js = r#"(() => {
+        if (document.querySelector("iframe[src*='recaptcha/api2/anchor']")) return true;
+        const t = document.body ? document.body.innerText : '';
+        return t.includes('Demasiadas peticiones');
+    })()"#;    
+    Ok(page.evaluate(js).await?.into_value()?)
+}
+
+/// Localiza el frame del reCAPTCHA y su contexto de ejecucion.
+async fn anchor_context(page: &Page) -> Result<Option<(FrameId, ExecutionContextId)>> {
+    for frame_id in page.frames().await? {
+        let Some(url) = page.frame_url(frame_id.clone()).await? else {
+            continue;
+        };
+        if !url.contains("recaptcha/api2/anchor") {
+            continue;
+        }
+        if let Some(ctx) = page.frame_execution_context(frame_id.clone()).await? {
+            return Ok(Some((frame_id, ctx)));
+        }
+    }
+    Ok(None)
+}
+
+#[derive(Debug, Deserialize)]
+struct Rect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// Clica la casilla del reCAPTCHA con eventos de raton reales (trusted).
+///
+/// El `.click()` sintetico no vale: reCAPTCHA ignora eventos `isTrusted=false`.
+/// Calculamos las coordenadas (bounding box del iframe + rect interno) y
+/// despachamos mouseMoved/mousePressed/mouseReleased via CDP.
+async fn click_captcha_checkbox(page: &Page, ctx: &ExecutionContextId) -> Result<bool> {
+    // Posicion del iframe en el viewport de la pagina principal. Se usa
+    // getBoundingClientRect (viewport-relative) para que case con las
+    // coordenadas que espera Input.dispatchMouseEvent.
+    let iframe_rect: Option<Rect> = page
+        .evaluate(
+            r#"(() => {
+                const f = document.querySelector("iframe[src*='recaptcha/api2/anchor']");
+                if (!f) return null;
+                f.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+                const r = f.getBoundingClientRect();
+                return { x: r.x, y: r.y, w: r.width, h: r.height };
+            })()"#,
+        )
+        .await?
+        .into_value()?;
+
+    let Some(iframe_rect) = iframe_rect else {
+        return Ok(false);
+    };
+
+    // Posicion de la casilla dentro del iframe (viewport del propio iframe).
+    let rect: Option<Rect> = eval_in_context(
+        page,
+        ctx,
+        r#"(() => {
+            const el = document.querySelector('#recaptcha-anchor');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, w: r.width, h: r.height };
+        })()"#,
+    )
+    .await?;
+
+    let Some(rect) = rect else {
+        return Ok(false);
+    };
+
+    let cx = iframe_rect.x + rect.x + rect.w / 2.0;
+    let cy = iframe_rect.y + rect.y + rect.h / 2.0;
+
+    let dispatch = |event_type: DispatchMouseEventType, button: Option<(MouseButton, i64)>| {
+        let mut builder = DispatchMouseEventParams::builder()
+            .r#type(event_type)
+            .x(cx)
+            .y(cy);
+        if let Some((button, buttons)) = button {
+            builder = builder.button(button).buttons(buttons).click_count(1);
+        }
+        builder.build()
+    };
+
+    let _ = page
+        .execute(
+            dispatch(DispatchMouseEventType::MouseMoved, None).map_err(|e| anyhow::anyhow!("{e}"))?,
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let _ = page
+        .execute(
+            dispatch(
+                DispatchMouseEventType::MousePressed,
+                Some((MouseButton::Left, 1)),
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"))?,
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let _ = page
+        .execute(
+            dispatch(
+                DispatchMouseEventType::MouseReleased,
+                Some((MouseButton::Left, 0)),
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"))?,
+        )
+        .await;
+
+    Ok(true)
+}
+
+/// Detecta si esta visible el reto de imagenes (bframe con tamano).
+async fn image_challenge_visible(page: &Page) -> Result<bool> {
+    let js = r#"(() => {
+        for (const f of document.querySelectorAll('iframe')) {
+            const s = f.getAttribute('src') || '';
+            if (s.includes('recaptcha/api2/bframe')) {
+                const r = f.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) return true;
+            }
+        }
+        return false;
+    })()"#;
+    Ok(page.evaluate(js).await?.into_value()?)
+}
+
+/// Sondea hasta que la casilla quede marcada o aparezca el reto de imagenes.
+async fn wait_checkbox_checked(page: &Page, ctx: &ExecutionContextId, timeout: Duration) -> bool {
+    let start = std::time::Instant::now();
+    loop {
+        let checked: bool = eval_in_context(
+            page,
+            ctx,
+            "document.querySelector('#recaptcha-anchor')?.getAttribute('aria-checked') === 'true'",
+        )
+        .await
+        .unwrap_or(false);
+
+        if checked {
+            return true;
+        }
+
+        if image_challenge_visible(page).await.unwrap_or(false) {
+            return false;
+        }
+
+        if start.elapsed() >= timeout {
+            return false;
+        }
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+/// Envia el formulario del captcha pulsando "Verificar".
+async fn submit_captcha(page: &Page) -> Result<()> {
+    // El banner de cookies puede tapar el boton.
+    let _ = accept_cookies(page).await;
+
+    if let Ok(btn) = page
+        .find_element("#form_capados_recaptcha input[type='submit']")
+        .await
+    {
+        let _ = btn.scroll_into_view().await;
+        let _ = btn.click().await;
+    }
+
+    let _ = tokio::time::timeout(Duration::from_secs(25), page.wait_for_navigation()).await;
+    Ok(())
+}
+
+/// Intenta resolver el captcha automaticamente (Plan A). Devuelve si lo logro.
+async fn try_solve_captcha(page: &Page, verboser: &dyn Verboser) -> Result<bool> {
+    let Some((_frame_id, ctx)) = anchor_context(page).await? else {
+        return Ok(false);
+    };
+
+    if !click_captcha_checkbox(page, &ctx).await? {
+        return Ok(false);
+    }
+
+    if !wait_checkbox_checked(page, &ctx, Duration::from_secs(10)).await {
+        verboser.warn("Captcha: la casilla no se marco (posible reto de imagenes)");
+        return Ok(false);
+    }
+
+    submit_captcha(page).await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    Ok(!is_blocked(page).await?)
+}
+
+/// Espera (sin timeout) a que el usuario resuelva el captcha manualmente.
+/// Termina cuando se desbloquea, cuando el usuario cancela o cuando cierra el
+/// navegador.
+async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
+    verboser.warn(
+        "Captcha detectado: resuelvelo manualmente en la ventana del navegador \
+         (cierra el navegador o cancela para abortar)",
+    );
+
+    loop {
+        if verboser.is_cancelled() {
+            return Err(anyhow::anyhow!(
+                "cancelado por el usuario durante el captcha"
+            ));
+        }
+
+        let blocked = match is_blocked(page).await {
+            Ok(blocked) => blocked,
+            Err(_) => return Err(anyhow::anyhow!("el navegador se cerro durante el captcha")),
+        };
+
+        if !blocked {
+            return Ok(());
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+/// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
+async fn ensure_unblocked(
+    page: &Page,
+    config: &EmpresiteConfig,
+    vpn: &VpnRotator,
+    verboser: &dyn Verboser,
+) -> Result<()> {
+    if !is_blocked(page).await? {
+        return Ok(());
+    }
+
+    verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
+
+    // Plan A: click automatico.
+    if try_solve_captcha(page, verboser).await? {
+        verboser.warn("Captcha resuelto automaticamente");
+        return Ok(());
+    }
+
+    // Plan B: rotar VPN y reintentar.
+    if vpn.force_rotate(verboser).await {
+        verboser.warn("VPN rotada; recargando pagina");
+
+        let current = page.url().await?.unwrap_or_default();
+        if !current.is_empty() {
+            let _ = page.goto(current).await;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        if !is_blocked(page).await? {
+            return Ok(());
+        }
+
+        if try_solve_captcha(page, verboser).await? {
+            return Ok(());
+        }
+    }
+
+    // Plan C: resolucion manual (solo si hay navegador visible).
+    if !config.headless {
+        wait_manual(page, verboser).await?;
+        return Ok(());
+    }
+
+    // Sin VPN y sin modo manual: pequeno backoff para no martillear.
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    Err(anyhow::anyhow!(
+        "no se pudo resolver el captcha de Empresite"
+    ))
+}
+
+// --- Fichas ------------------------------------------------------------------
 
 /// Resultado crudo de una ficha de empresa.
 #[derive(Debug, Default, Deserialize)]
@@ -169,16 +474,35 @@ fn clean_empresite_url(url: &str) -> String {
     base.trim().strip_suffix('/').unwrap_or(base.trim()).to_string()
 }
 
+/// Desenlace del scraping de una ficha.
+enum DetailOutcome {
+    Found(Coincidence),
+    Skipped,
+    Blocked,
+}
+
 /// Scrapea una ficha de empresa abriendo una pestaña nueva.
 async fn scrape_detail(
     browser: &Browser,
     link: &str,
     config: &EmpresiteConfig,
+    vpn: &VpnRotator,
     verboser: &dyn Verboser,
     count: usize,
-) -> Result<Option<Coincidence>> {
+) -> Result<DetailOutcome> {
     let detail_page = browser.new_page(link).await?;
     let _ = detail_page.wait_for_navigation().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    if is_blocked(&detail_page).await? {
+        if ensure_unblocked(&detail_page, config, vpn, verboser)
+            .await
+            .is_err()
+        {
+            let _ = detail_page.close().await;
+            return Ok(DetailOutcome::Blocked);
+        }
+    }
 
     // Espera a que el h1 de la ficha este disponible.
     let _ = wait_until(
@@ -198,7 +522,7 @@ async fn scrape_detail(
     let _ = detail_page.close().await;
 
     if raw.name.is_empty() {
-        return Ok(None);
+        return Ok(DetailOutcome::Skipped);
     }
 
     let email = clean_email(&raw.email);
@@ -207,7 +531,7 @@ async fn scrape_detail(
 
     verboser.processed_coincidence(&raw.name, count);
 
-    Ok(Some(Coincidence {
+    Ok(DetailOutcome::Found(Coincidence {
         name: raw.name,
         email,
         web,
@@ -222,6 +546,7 @@ pub async fn scrape(
     browser: &Browser,
     params: &EmpresiteParams,
     config: &EmpresiteConfig,
+    vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
     verboser.searching_coincidences();
@@ -247,12 +572,16 @@ pub async fn scrape(
         return Ok(ScrapeResult::empty(false));
     }
 
+    // El listado puede venir bloqueado por captcha.
+    ensure_unblocked(&page, config, vpn, verboser).await?;
+
     let links = extract_company_links(&page).await?;
     verboser.found_multiple_coincidences();
 
     let has_more = has_next_page(&page, params.page).await?;
 
     let mut coincidences = Vec::new();
+    let mut blocked = false;
     for (idx, link) in links.into_iter().enumerate() {
         if verboser.is_cancelled() {
             break;
@@ -260,11 +589,22 @@ pub async fn scrape(
 
         tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
 
-        match scrape_detail(browser, &link, config, verboser, idx + 1).await {
-            Ok(Some(coincidence)) => coincidences.push(coincidence),
-            Ok(None) => {}
+        match scrape_detail(browser, &link, config, vpn, verboser, idx + 1).await {
+            Ok(DetailOutcome::Found(coincidence)) => coincidences.push(coincidence),
+            Ok(DetailOutcome::Skipped) => {}
+            Ok(DetailOutcome::Blocked) => {
+                blocked = true;
+                break;
+            }
             Err(err) => verboser.warn(&format!("Error extrayendo ficha {}: {}", link, err)),
         }
+    }
+
+    // Si una ficha quedo bloqueada, reintentar la pagina entera mas tarde.
+    if blocked {
+        return Err(anyhow::anyhow!(
+            "captcha irresoluble durante el scraping de fichas"
+        ));
     }
 
     Ok(ScrapeResult::new(coincidences, has_more))

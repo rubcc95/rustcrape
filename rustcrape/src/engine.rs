@@ -30,6 +30,11 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
         config.ip_rotation_frequency,
     ));
     let browser_path = config.browser_path.clone();
+    let profile_root = config
+        .browser_profile_dir
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("rustcrape-profiles"));
 
     let gmaps = config
         .google_maps
@@ -38,7 +43,7 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
     let empresite = config
         .empresite
         .enabled
-        .then(|| EmpresiteScraper::new(config.empresite.clone()));
+        .then(|| EmpresiteScraper::new(config.empresite.clone(), vpn.clone()));
 
     match config.execution_mode {
         ExecutionMode::Sequential => {
@@ -49,6 +54,7 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
                     verboser.clone(),
                     vpn.clone(),
                     browser_path.clone(),
+                    profile_root.clone(),
                 )
                 .await;
             }
@@ -59,6 +65,7 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
                     verboser.clone(),
                     vpn.clone(),
                     browser_path.clone(),
+                    profile_root.clone(),
                 )
                 .await;
             }
@@ -70,8 +77,9 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
                 let verboser = verboser.clone();
                 let vpn = vpn.clone();
                 let browser_path = browser_path.clone();
+                let profile_root = profile_root.clone();
                 handles.push(tokio::spawn(async move {
-                    run_target(scraper, persist, verboser, vpn, browser_path).await;
+                    run_target(scraper, persist, verboser, vpn, browser_path, profile_root).await;
                 }));
             }
             if let Some(scraper) = empresite {
@@ -79,8 +87,9 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
                 let verboser = verboser.clone();
                 let vpn = vpn.clone();
                 let browser_path = browser_path.clone();
+                let profile_root = profile_root.clone();
                 handles.push(tokio::spawn(async move {
-                    run_target(scraper, persist, verboser, vpn, browser_path).await;
+                    run_target(scraper, persist, verboser, vpn, browser_path, profile_root).await;
                 }));
             }
             for handle in handles {
@@ -96,6 +105,7 @@ async fn run_target<S: Scraper>(
     verboser: Arc<dyn Verboser>,
     vpn: Arc<VpnRotator>,
     browser_path: Option<String>,
+    profile_root: std::path::PathBuf,
 ) {
     if let Err(err) = scraper.seed(&persist, &*verboser).await {
         verboser.error(&format!("Error seeding tasks for {}: {err}", scraper.name()));
@@ -160,17 +170,22 @@ async fn run_target<S: Scraper>(
         }
 
         verboser.opening_browser(&label);
-        let browser =
-            match Browser::launch(scraper.headless(), browser_path.as_deref().map(Path::new)).await
-            {
-                Ok(browser) => browser,
-                Err(err) => {
-                    verboser.error(&format!("Error launching browser: {err}"));
-                    let _ = scraper.release(&persist, task_id, None).await;
-                    iteration += 1;
-                    continue;
-                }
-            };
+        let profile_dir = profile_root.join(scraper.name());
+        let browser = match Browser::launch(
+            scraper.headless(),
+            browser_path.as_deref().map(Path::new),
+            Some(&profile_dir),
+        )
+        .await
+        {
+            Ok(browser) => browser,
+            Err(err) => {
+                verboser.error(&format!("Error launching browser: {err}"));
+                let _ = scraper.release(&persist, task_id, None).await;
+                iteration += 1;
+                continue;
+            }
+        };
 
         let result = scraper.scrape(&browser, &params, &*verboser).await;
         verboser.closing_browser();
@@ -247,6 +262,7 @@ mod tests {
             db: DbConfig::Sqlite { path: None },
             nordvpn_path: None,
             browser_path: None,
+            browser_profile_dir: None,
             ip_rotation_frequency: 0,
         }
     }

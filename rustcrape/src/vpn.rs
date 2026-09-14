@@ -38,18 +38,24 @@ pub fn nordvpn_available(nordvpn_path: &Path) -> bool {
     nordvpn_path.exists()
 }
 
-pub async fn rotate_vpn(nordvpn_path: &Path, verboser: &dyn Verboser) {
+pub async fn rotate_vpn(nordvpn_path: &Path, verboser: &dyn Verboser) -> bool {
     verboser.vpn_rotating();
 
     let _ = Command::new(nordvpn_path).arg("-d").kill_on_drop(true).status().await;
 
-    let _ = Command::new(nordvpn_path)
+    let connected = Command::new(nordvpn_path)
         .args(["-c", "-g", random_country()])
         .kill_on_drop(true)
         .status()
-        .await;
+        .await
+        .map(|status| status.success())
+        .unwrap_or(false);
 
-    verboser.vpn_rotated();
+    if connected {
+        verboser.vpn_rotated();
+    }
+
+    connected
 }
 
 /// Rotador de VPN compartido por todos los targets. Rota globalmente cada
@@ -87,9 +93,30 @@ impl VpnRotator {
         };
 
         if nordvpn_available(path) {
-            rotate_vpn(path, verboser).await;
+            let _ = rotate_vpn(path, verboser).await;
         } else {
             verboser.vpn_not_available();
         }
+    }
+
+    /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
+    /// la rotacion tuvo exito; `false` si no hay VPN configurada, no esta
+    /// disponible o fallo la conexion.
+    pub async fn force_rotate(&self, verboser: &dyn Verboser) -> bool {
+        let Some(path) = &self.path else {
+            return false;
+        };
+
+        if !nordvpn_available(path) {
+            verboser.vpn_not_available();
+            return false;
+        }
+
+        let rotated = rotate_vpn(path, verboser).await;
+        if rotated {
+            let mut counter = self.counter.lock().unwrap();
+            *counter = 0;
+        }
+        rotated
     }
 }

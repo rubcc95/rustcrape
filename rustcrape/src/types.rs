@@ -52,6 +52,10 @@ pub struct Config {
     /// VPN global para todos los targets.
     pub nordvpn_path: Option<String>,
     pub browser_path: Option<String>,
+    /// Directorio raiz de perfiles persistentes de Chrome. Si es `None` se usa
+    /// un directorio temporal. Conserva cookies (reCAPTCHA/consentimiento)
+    /// entre tareas para reducir captchas.
+    pub browser_profile_dir: Option<String>,
     pub ip_rotation_frequency: u32,
 }
 
@@ -67,6 +71,8 @@ struct ConfigRaw {
     #[serde(default)]
     browser_path: Option<String>,
     #[serde(default)]
+    browser_profile_dir: Option<String>,
+    #[serde(default)]
     ip_rotation_frequency: u32,
 }
 
@@ -79,6 +85,7 @@ impl From<ConfigRaw> for Config {
             db: raw.db,
             nordvpn_path: raw.nordvpn_path,
             browser_path: raw.browser_path,
+            browser_profile_dir: raw.browser_profile_dir,
             ip_rotation_frequency: raw.ip_rotation_frequency,
         }
     }
@@ -113,6 +120,8 @@ struct LegacyConfig {
     #[serde(default)]
     browser_path: Option<String>,
     #[serde(default)]
+    browser_profile_dir: Option<String>,
+    #[serde(default)]
     ip_rotation_frequency: u32,
 }
 
@@ -145,6 +154,7 @@ impl From<LegacyConfig> for Config {
             db: legacy.db,
             nordvpn_path: legacy.nordvpn_path,
             browser_path: legacy.browser_path,
+            browser_profile_dir: legacy.browser_profile_dir,
             ip_rotation_frequency: legacy.ip_rotation_frequency,
         }
     }

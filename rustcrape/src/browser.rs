@@ -116,7 +116,11 @@ pub struct Browser {
 }
 
 impl Browser {
-    pub async fn launch(headless: bool, browser_path: Option<&Path>) -> Result<Self> {
+    pub async fn launch(
+        headless: bool,
+        browser_path: Option<&Path>,
+        profile_dir: Option<&Path>,
+    ) -> Result<Self> {
         let idx = rand_range(0, VIEWPORTS.len() - 1);
         let (width, height) = VIEWPORTS[idx];
         let user_agent = USER_AGENTS[rand_range(0, USER_AGENTS.len() - 1)];
@@ -129,6 +133,13 @@ impl Browser {
             })
             .arg(("user-agent", user_agent))
             .hide();
+
+        // Perfil persistente: conserva cookies (reCAPTCHA, consentimiento) entre
+        // tareas para reducir la aparicion de captchas.
+        if let Some(dir) = profile_dir {
+            std::fs::create_dir_all(dir).ok();
+            builder = builder.user_data_dir(dir);
+        }
 
         if !headless {
             builder = builder.with_head();
@@ -215,7 +226,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_buscar_with_browser_instance() {
-        let instance = Browser::launch(true, None).await.unwrap();
+        let instance = Browser::launch(true, None, None).await.unwrap();
         let scraper = GoogleMapsScraper::new(test_config());
         let result = scraper
             .scrape(
@@ -238,7 +249,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn search_multi() {
-        let instance = Browser::launch(true, None).await.unwrap();
+        let instance = Browser::launch(true, None, None).await.unwrap();
 
         let scraper = GoogleMapsScraper::new(test_config());
         let result = scraper
@@ -263,7 +274,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn search_single() {
-        let instance = Browser::launch(true, None).await.unwrap();
+        let instance = Browser::launch(true, None, None).await.unwrap();
         let mut config = test_config();
         config.search_query = "Parque de Ferrera".to_string();
         let scraper = GoogleMapsScraper::new(config);
