@@ -385,6 +385,19 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
+/// Estado de carga de una ficha: `Some(true)` si la pagina esta bloqueada,
+/// `Some(false)` si el h1 ya tiene texto, `None` si aun no esta lista.
+async fn detail_state(page: &Page) -> Result<Option<bool>> {
+    if is_blocked(page).await? {
+        return Ok(Some(true));
+    }
+    let name: String = page
+        .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
+        .await?
+        .into_value()?;
+    Ok((!name.is_empty()).then_some(false))
+}
+
 /// Limpia el email: quita `mailto:` y cualquier query (`?subject=...`).
 fn clean_email(raw: &str) -> Option<String> {
     let s = raw.strip_prefix("mailto:").unwrap_or(raw);
@@ -424,6 +437,33 @@ fn clean_empresite_url(url: &str) -> String {
     base.trim().strip_suffix('/').unwrap_or(base.trim()).to_string()
 }
 
+/// Convierte el texto de la actividad en un slug apto para la URL de Empresite:
+/// mayusculas, sin acentos, espacios por guiones y solo caracteres aceptados en
+/// una URL (alfanumericos, `-`, `_`, `.` y `~`).
+fn activity_slug(query: &str) -> String {
+    let mut slug = String::with_capacity(query.len());
+    for ch in query.trim().to_uppercase().chars() {
+        let ch = match ch {
+            'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => 'A',
+            'É' | 'È' | 'Ë' | 'Ê' => 'E',
+            'Í' | 'Ì' | 'Ï' | 'Î' => 'I',
+            'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' => 'O',
+            'Ú' | 'Ù' | 'Ü' | 'Û' => 'U',
+            'Ç' => 'C',
+            'Ñ' => 'N',
+            other => other,
+        };        
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            slug.push(ch);
+        } else if ch.is_whitespace() || ch == '-' {
+            if !slug.ends_with('-') {
+                slug.push('-');
+            }
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
 /// Desenlace del scraping de una ficha.
 enum DetailOutcome {
     Found(Coincidence),
@@ -441,31 +481,33 @@ async fn scrape_detail(
     count: usize,
 ) -> Result<DetailOutcome> {
     let detail_page = browser.new_page(link).await?;
-    let _ = detail_page.wait_for_navigation().await;
-    tokio::time::sleep(Duration::from_secs(1)).await;
 
-    if is_blocked(&detail_page).await? {
+    // Sondea hasta que la ficha este lista (h1 disponible) o aparezca un
+    // bloqueo, en vez de esperar a que termine la navegacion completa.
+    let blocked = wait_until(
+        || detail_state(&detail_page),
+        Duration::from_millis(200),
+        Duration::from_secs(15),
+    )
+    .await
+    .unwrap_or(false);
+
+    if blocked {
         if let Err(err) = ensure_unblocked(&detail_page, config, vpn, verboser)
             .await
         {
             let _ = detail_page.close().await?;
-            return Err(err);        
+            return Err(err);
         }
-    }
 
-    // Espera a que el h1 de la ficha este disponible.
-    let _ = wait_until(
-        || async {
-            let name: String = detail_page
-                .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
-                .await?
-                .into_value()?;
-            Ok((!name.is_empty()).then_some(()))
-        },
-        Duration::from_millis(200),
-        Duration::from_secs(15),
-    )
-    .await;
+        // Tras resolver el bloqueo, espera de nuevo a que cargue la ficha.
+        let _ = wait_until(
+            || detail_state(&detail_page),
+            Duration::from_millis(200),
+            Duration::from_secs(15),
+        )
+        .await;
+    }
 
     let raw = extract_detail(&detail_page).await?;
     let _ = detail_page.close().await;
@@ -500,7 +542,7 @@ pub async fn scrape(
 ) -> Result<ScrapeResult> {
     verboser.searching_coincidences();
 
-    let activity = config.search_query.trim().to_uppercase();
+    let activity = activity_slug(&config.search_query);
     let url = if params.page <= 1 {
         format!("https://empresite.eleconomista.es/Actividad/{activity}/")
     } else {
@@ -624,5 +666,20 @@ mod tests {
             clean_empresite_url("https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html"),
             "https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html".to_string()
         );
+    }
+
+    #[test]
+    fn test_activity_slug_acentos_y_espacios() {
+        assert_eq!(activity_slug("  fontanería y calefacción "), "FONTANERIA-Y-CALEFACCION");
+    }
+
+    #[test]
+    fn test_activity_slug_elimina_especiales() {
+        assert_eq!(activity_slug("café/bar (centro)"), "CAFEBAR-CENTRO");
+    }
+
+    #[test]
+    fn test_activity_slug_mantiene_guion_y_bajo() {
+        assert_eq!(activity_slug("auto_escuela-test"), "AUTO_ESCUELA-TEST");
     }
 }
