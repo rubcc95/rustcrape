@@ -193,37 +193,43 @@ impl std::ops::Deref for Browser {
 mod tests {
 
     use super::*;
-    use crate::scrapper::scrape;
-    use crate::types::{PersistentConfig, SearchConfig, SearchContext};
+    use crate::google_maps::{GoogleMapsParams, GoogleMapsScraper};
+    use crate::scraper::Scraper;
+    use crate::types::GoogleMapsConfig;
     use crate::verboser::DebugVerboser;
+
+    fn test_config() -> GoogleMapsConfig {
+        GoogleMapsConfig {
+            enabled: true,
+            search_query: "Tintoreria".to_string(),
+            zoom: 12,
+            stop_threshold: 5,
+            delay_min: 100,
+            delay_max: 1400,
+            headless: false,
+            rate_limit: None,
+            iterations: None,
+        }
+    }
 
     #[tokio::test]
     #[ignore]
     async fn test_buscar_with_browser_instance() {
         let instance = Browser::launch(true, None).await.unwrap();
-        let config = SearchConfig {
-            persistent: PersistentConfig {
-                search_query: "Tintoreria".to_string(),
-                zoom: 12,
-            },
-            delay_min: 100,
-            delay_max: 1400,
-            stop_threshold: 5,
-            headless: false,
-        };
-        let coincidences = scrape(
-            &instance,
-            SearchContext {
-                config: &config,
-                lat: 27.1248,
-                lng: -15.4300,
-            },
-            &DebugVerboser,
-        )
-        .await
-        .unwrap();
-        println!("Gran Canaria: {} coincidences", coincidences.len());
-        for (idx, res) in coincidences.into_iter().enumerate() {
+        let scraper = GoogleMapsScraper::new(test_config());
+        let result = scraper
+            .scrape(
+                &instance,
+                &GoogleMapsParams {
+                    lat: 27.1248,
+                    lng: -15.4300,
+                },
+                &DebugVerboser,
+            )
+            .await
+            .unwrap();
+        println!("Gran Canaria: {} coincidences", result.coincidences.len());
+        for (idx, res) in result.coincidences.into_iter().enumerate() {
             println!("Result {}: {:?}", idx + 1, res);
         }
         instance.close().await.unwrap();
@@ -234,29 +240,20 @@ mod tests {
     async fn search_multi() {
         let instance = Browser::launch(true, None).await.unwrap();
 
-        let config = SearchConfig {
-            persistent: PersistentConfig {
-                search_query: "Tintoreria".to_string(),
-                zoom: 12,
-            },
-            delay_min: 100,
-            delay_max: 1400,
-            stop_threshold: 5,
-            headless: false,
-        };
-        let coincidences: Vec<crate::types::Coincidence> = scrape(
-            &instance,
-            SearchContext {
-                lat: 27.8248,
-                lng: -15.4300,
-                config: &config,
-            },
-            &DebugVerboser,
-        )
-        .await
-        .unwrap();
-        println!("Gran Canaria: {} coincidences", coincidences.len());
-        for (idx, coincidence) in coincidences.into_iter().enumerate() {
+        let scraper = GoogleMapsScraper::new(test_config());
+        let result = scraper
+            .scrape(
+                &instance,
+                &GoogleMapsParams {
+                    lat: 27.8248,
+                    lng: -15.4300,
+                },
+                &DebugVerboser,
+            )
+            .await
+            .unwrap();
+        println!("Gran Canaria: {} coincidences", result.coincidences.len());
+        for (idx, coincidence) in result.coincidences.into_iter().enumerate() {
             println!("Result {}: {:?}", idx + 1, coincidence);
         }
 
@@ -267,30 +264,23 @@ mod tests {
     #[ignore]
     async fn search_single() {
         let instance = Browser::launch(true, None).await.unwrap();
-        let config = SearchConfig {
-            persistent: PersistentConfig {
-                search_query: "Parque de Ferrera".to_string(),
-                zoom: 12,
-            },
-            delay_min: 100,
-            delay_max: 1400,
-            stop_threshold: 5,
-            headless: false,
-        };
-        let coincidences = scrape(
-            &instance,
-            SearchContext {
-                lat: 43.5528489,
-                lng: -5.9226716,
-                config: &config,
-            },
-            &DebugVerboser,
-        )
-        .await
-        .unwrap();
-        println!("El Hierro: {} rescoincidencesults", coincidences.len());
+        let mut config = test_config();
+        config.search_query = "Parque de Ferrera".to_string();
+        let scraper = GoogleMapsScraper::new(config);
+        let result = scraper
+            .scrape(
+                &instance,
+                &GoogleMapsParams {
+                    lat: 43.5528489,
+                    lng: -5.9226716,
+                },
+                &DebugVerboser,
+            )
+            .await
+            .unwrap();
+        println!("El Hierro: {} coincidences", result.coincidences.len());
         // The assertion is soft — may be 0 or 1, both are valid outcomes.
-        if coincidences.is_empty() {
+        if result.coincidences.is_empty() {
             println!("No coincidences found in El Hierro (expected: may be 0 or 1)");
         }
 

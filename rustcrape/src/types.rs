@@ -21,78 +21,184 @@ mod zero_is_none {
     }
 }
 
+/// Resultado unico de un scrape, comun a todos los targets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Coincidence {
     pub name: String,
     pub email: Option<String>,
     pub web: Option<String>,
     pub tfno: Option<String>,
-    pub maps: String,
+    /// URL de origen (ficha de Google Maps, pagina de Empresite, etc.).
+    pub source_url: String,
 }
- 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+/// Modo de ejecucion cuando hay varios targets habilitados.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ExecutionMode {
+    #[default]
+    Sequential,
+    Parallel,
+}
+
+/// Configuracion global del scraper. Contiene la configuracion de cada target
+/// y los ajustes comunes a toda la ejecucion.
+#[derive(Debug, Clone, Serialize)]
 pub struct Config {
-    pub search: SearchConfig,
-    #[serde(with = "zero_is_none")]
-    pub rate_limit: Option<NonZeroU32>,
-    #[serde(with = "zero_is_none")]
-    pub iterations: Option<NonZeroU32>,
+    pub google_maps: GoogleMapsConfig,
+    pub empresite: EmpresiteConfig,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
     pub db: DbConfig,
+    /// VPN global para todos los targets.
     pub nordvpn_path: Option<String>,
     pub browser_path: Option<String>,
     pub ip_rotation_frequency: u32,
 }
 
-impl std::ops::Deref for Config {
-    type Target = SearchConfig;
+#[derive(Deserialize)]
+struct ConfigRaw {
+    google_maps: GoogleMapsConfig,
+    empresite: EmpresiteConfig,
+    #[serde(default)]
+    execution_mode: ExecutionMode,
+    db: DbConfig,
+    #[serde(default)]
+    nordvpn_path: Option<String>,
+    #[serde(default)]
+    browser_path: Option<String>,
+    #[serde(default)]
+    ip_rotation_frequency: u32,
+}
 
-    fn deref(&self) -> &Self::Target {
-        &self.search
+impl From<ConfigRaw> for Config {
+    fn from(raw: ConfigRaw) -> Self {
+        Config {
+            google_maps: raw.google_maps,
+            empresite: raw.empresite,
+            execution_mode: raw.execution_mode,
+            db: raw.db,
+            nordvpn_path: raw.nordvpn_path,
+            browser_path: raw.browser_path,
+            ip_rotation_frequency: raw.ip_rotation_frequency,
+        }
+    }
+}
+
+// Formato antiguo: toda la configuracion bajo `search` (solo existia Google Maps).
+#[derive(Deserialize)]
+struct LegacyPersistentConfig {
+    zoom: u32,
+    search_query: String,
+}
+
+#[derive(Deserialize)]
+struct LegacySearchConfig {
+    persistent: LegacyPersistentConfig,
+    stop_threshold: u32,
+    delay_min: u64,
+    delay_max: u64,
+    headless: bool,
+}
+
+#[derive(Deserialize)]
+struct LegacyConfig {
+    search: LegacySearchConfig,
+    #[serde(default)]
+    rate_limit: u32,
+    #[serde(default)]
+    iterations: u32,
+    db: DbConfig,
+    #[serde(default)]
+    nordvpn_path: Option<String>,
+    #[serde(default)]
+    browser_path: Option<String>,
+    #[serde(default)]
+    ip_rotation_frequency: u32,
+}
+
+impl From<LegacyConfig> for Config {
+    fn from(legacy: LegacyConfig) -> Self {
+        let search = legacy.search;
+        let search_query = search.persistent.search_query;
+        Config {
+            google_maps: GoogleMapsConfig {
+                enabled: true,
+                search_query: search_query.clone(),
+                zoom: search.persistent.zoom,
+                stop_threshold: search.stop_threshold,
+                delay_min: search.delay_min,
+                delay_max: search.delay_max,
+                headless: search.headless,
+                rate_limit: NonZeroU32::new(legacy.rate_limit),
+                iterations: NonZeroU32::new(legacy.iterations),
+            },
+            empresite: EmpresiteConfig {
+                enabled: false,
+                search_query,
+                delay_min: 500,
+                delay_max: 2000,
+                headless: false,
+                rate_limit: None,
+                iterations: None,
+            },
+            execution_mode: ExecutionMode::Sequential,
+            db: legacy.db,
+            nordvpn_path: legacy.nordvpn_path,
+            browser_path: legacy.browser_path,
+            ip_rotation_frequency: legacy.ip_rotation_frequency,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value.get("google_maps").is_some() {
+            ConfigRaw::deserialize(value)
+                .map(Config::from)
+                .map_err(serde::de::Error::custom)
+        } else {
+            LegacyConfig::deserialize(value)
+                .map(Config::from)
+                .map_err(serde::de::Error::custom)
+        }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchConfig {
-    pub persistent: PersistentConfig,
+pub struct GoogleMapsConfig {
+    pub enabled: bool,
+    pub search_query: String,
+    pub zoom: u32,
     pub stop_threshold: u32,
     pub delay_min: u64,
     pub delay_max: u64,
     pub headless: bool,
-}
-
-impl std::ops::Deref for SearchConfig{
-    type Target = PersistentConfig;
-
-    fn deref(&self) -> &Self::Target {
-        &self.persistent
-    }
-}
-
-impl std::ops::DerefMut for SearchConfig{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.persistent
-    }
+    /// Limite de ejecuciones por hora propio de este target.
+    #[serde(with = "zero_is_none")]
+    pub rate_limit: Option<NonZeroU32>,
+    /// Numero maximo de tareas a procesar (para pruebas).
+    #[serde(with = "zero_is_none")]
+    pub iterations: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistentConfig{
-    pub zoom: u32,
+pub struct EmpresiteConfig {
+    pub enabled: bool,
+    /// Termino de busqueda (se comparte con Google Maps).
     pub search_query: String,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct SearchContext<'a> {
-    pub lat: f32,
-    pub lng: f32,
-    pub config: &'a SearchConfig,
-}
-
-impl std::ops::Deref for SearchContext<'_> {
-    type Target = SearchConfig;
-
-    fn deref(&self) -> &Self::Target {
-        self.config
-    }
+    pub delay_min: u64,
+    pub delay_max: u64,
+    pub headless: bool,
+    /// Limite de ejecuciones por hora propio de este target.
+    #[serde(with = "zero_is_none")]
+    pub rate_limit: Option<NonZeroU32>,
+    /// Numero maximo de tareas a procesar (para pruebas).
+    #[serde(with = "zero_is_none")]
+    pub iterations: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Clone)]

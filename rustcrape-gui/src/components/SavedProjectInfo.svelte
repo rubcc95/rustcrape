@@ -1,5 +1,15 @@
 <script lang="ts">
   import { projectStore } from "../lib/stores/project.store.svelte";
+  import { isSqlite } from "../lib/types";
+
+  function dbLabel(): string {
+    const project = projectStore.currentProject;
+    if (!project) return "";
+    const db = project.config.db;
+    return isSqlite(db)
+      ? (db.path ?? "SQLite local")
+      : `${db.user}@${db.host}:${db.port}/${db.database}`;
+  }
 </script>
 
 {#if projectStore.currentProject}
@@ -10,20 +20,38 @@
       <div class="info-item">
         <span class="info-label">Término de búsqueda</span>
         <span class="info-value"
-          >{projectStore.currentProject.config.search.persistent.search_query}</span
+          >{projectStore.currentProject.config.google_maps.search_query}</span
         >
       </div>
       <div class="info-item">
         <span class="info-label">Zoom</span>
         <span class="info-value"
-          >{projectStore.currentProject.config.search.persistent.zoom}</span
+          >{projectStore.currentProject.config.google_maps.zoom}</span
+        >
+      </div>
+      <div class="info-item">
+        <span class="info-label">Google Maps</span>
+        <span class="info-value"
+          >{projectStore.currentProject.config.google_maps.enabled ? "Sí" : "No"}</span
+        >
+      </div>
+      <div class="info-item">
+        <span class="info-label">Empresite</span>
+        <span class="info-value"
+          >{projectStore.currentProject.config.empresite.enabled ? "Sí" : "No"}</span
+        >
+      </div>
+      <div class="info-item">
+        <span class="info-label">Modo de ejecución</span>
+        <span class="info-value"
+          >{projectStore.currentProject.config.execution_mode === "Parallel"
+            ? "Paralelo"
+            : "Secuencial"}</span
         >
       </div>
       <div class="info-item">
         <span class="info-label">Base de datos</span>
-        <span class="info-value"
-          >{projectStore.currentProject.config.db.database}@{projectStore.currentProject.config.db.host}</span
-        >
+        <span class="info-value">{dbLabel()}</span>
       </div>
       <div class="info-item">
         <span class="info-label">Ejecutado</span>
@@ -40,11 +68,11 @@
     <div class="stats-grid">
       <div class="stat-card">
         <span class="stat-value">--</span>
-        <span class="stat-label">Bounds analizados</span>
+        <span class="stat-label">Tareas analizadas</span>
       </div>
       <div class="stat-card">
         <span class="stat-value">--</span>
-        <span class="stat-label">Bounds restantes</span>
+        <span class="stat-label">Tareas restantes</span>
       </div>
       <div class="stat-card">
         <span class="stat-value">--</span>
@@ -55,11 +83,11 @@
         <span class="stat-label">Teléfonos</span>
       </div>
     </div>
-  </div> 
+  </div>
 {/if}
 
 <style>
-  .panel { 
+  .panel {
     background-color: var(--card-bg);
     border: 0px;
     border-radius: 8px;
@@ -133,5 +161,4 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-
 </style>

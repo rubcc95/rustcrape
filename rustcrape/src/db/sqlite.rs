@@ -1,9 +1,9 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::generator::SPAIN;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, PersistentConfig};
+use crate::types::{Coincidence, GoogleMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -17,6 +17,7 @@ pub fn default_path() -> String {
         .to_string()
 }
 
+#[derive(Clone)]
 pub struct SqlitePersistence {
     pool: SqlitePool,
 }
@@ -24,7 +25,7 @@ pub struct SqlitePersistence {
 impl SqlitePersistence {
     pub async fn new(
         db_path: &str,
-        params: &mut PersistentConfig,
+        params: &mut GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         if let Some(parent) = Path::new(db_path).parent() {
@@ -53,7 +54,7 @@ impl SqlitePersistence {
 
     async fn create_tables(
         &self,
-        params: &mut PersistentConfig,
+        params: &mut GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.creating_tables();
@@ -80,7 +81,8 @@ impl SqlitePersistence {
                 web TEXT DEFAULT '',
                 email TEXT DEFAULT '',
                 tfno TEXT DEFAULT '',
-                maps TEXT DEFAULT '',
+                source_url TEXT DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
                 creado TEXT DEFAULT (datetime('now')),
                 UNIQUE (name, email, web, tfno)
             )",
@@ -98,6 +100,22 @@ impl SqlitePersistence {
         )
         .execute(&self.pool)
         .await?;
+
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS empresite_pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page INTEGER NOT NULL,
+                in_progress INTEGER NOT NULL DEFAULT 0,
+                items INTEGER DEFAULT NULL,
+                duplicated INTEGER DEFAULT NULL,
+                started_at TEXT DEFAULT NULL,
+                UNIQUE (page)
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        self.ensure_coincidence_columns().await?;
 
         // Insert config only if not already present
         sqlx::query(
@@ -117,40 +135,80 @@ impl SqlitePersistence {
         {
             params.search_query = row.get("search_query");
             params.zoom = row.get("zoom");
-        } 
-
-        // Check if bounds exist; if not, seed the grid
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM bounds")
-            .fetch_one(&self.pool)
-            .await?;
-
-        if count.0 == 0 {
-            let centers = SPAIN
-                .generate_grid(params.zoom, verboser)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-            verboser.generating_bounds(centers.len(), centers.len(), centers.len());
-
-            for chunk in centers.chunks(100) {
-                let mut builder =
-                    sqlx::QueryBuilder::new("INSERT OR IGNORE INTO bounds (lat, lng) ");
-                builder.push_values(chunk, |mut b, (lat, lng)| {
-                    b.push_bind(lat);
-                    b.push_bind(lng);
-                });
-                builder.build().execute(&self.pool).await?;
-            }
         }
 
+        Ok(())
+    }
+
+    async fn ensure_coincidence_columns(&self) -> Result<()> {
+        let rows = sqlx::query("PRAGMA table_info(coincidences)")
+            .fetch_all(&self.pool)
+            .await?;
+        let existing: HashSet<String> = rows.iter().map(|r| r.get("name")).collect();
+
+        if existing.contains("maps") && !existing.contains("source_url") {
+            sqlx::raw_sql("ALTER TABLE coincidences RENAME COLUMN maps TO source_url")
+                .execute(&self.pool)
+                .await?;
+        }
+
+        if !existing.contains("source") {
+            sqlx::raw_sql("ALTER TABLE coincidences ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 }
 
 impl Persistence for SqlitePersistence {
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64> {
+        let filtered: Vec<Coincidence> = data
+            .into_iter()
+            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
+            .collect();
+        if filtered.is_empty() {
+            return Ok(0);
+        }
+        let mut builder = sqlx::QueryBuilder::new(
+            "INSERT OR IGNORE INTO coincidences (name, web, email, tfno, source_url, source) ",
+        );
+        builder.push_values(filtered, |mut b, c| {
+            b.push_bind(c.name);
+            b.push_bind(c.web.unwrap_or_default());
+            b.push_bind(c.email.unwrap_or_default());
+            b.push_bind(c.tfno.unwrap_or_default());
+            b.push_bind(c.source_url);
+            b.push_bind(source);
+        });
+        let result = builder.build().execute(&self.pool).await?;
+        Ok(result.rows_affected() as u64)
+    }
+
+    async fn has_bounds(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM bounds LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some())
+    }
+
+    async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()> {
+        for chunk in centers.chunks(100) {
+            let mut builder =
+                sqlx::QueryBuilder::new("INSERT OR IGNORE INTO bounds (lat, lng) ");
+            builder.push_values(chunk, |mut b, (lat, lng)| {
+                b.push_bind(lat);
+                b.push_bind(lng);
+            });
+            builder.build().execute(&self.pool).await?;
+        }
+        Ok(())
+    }
+
     async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
         Ok(
             sqlx::query(
-                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours')) AND items IS NULL LIMIT 1"
+                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours')) AND items IS NULL ORDER BY id LIMIT 1"
             )
             .fetch_all(&self.pool)
             .await?
@@ -191,24 +249,62 @@ impl Persistence for SqlitePersistence {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64> {
-        let filtered: Vec<Coincidence> = data
+    async fn has_empresite_pages(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM empresite_pages LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some())
+    }
+
+    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
+        sqlx::query("INSERT OR IGNORE INTO empresite_pages (page) VALUES (?)")
+            .bind(page as i64)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+        Ok(
+            sqlx::query(
+                "SELECT id, page FROM empresite_pages WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours')) AND items IS NULL ORDER BY page ASC LIMIT 1",
+            )
+            .fetch_all(&self.pool)
+            .await?
             .into_iter()
-            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
-            .collect();
-        if filtered.is_empty() {
-            return Ok(0);
+            .next()
+            .map(|row| (row.get("id"), row.get::<i64, _>("page") as u32)),
+        )
+    }
+
+    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE empresite_pages SET in_progress = 1, started_at = datetime('now') WHERE id = ?",
+        )
+        .bind(page_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn release_empresite_page(
+        &self,
+        page_id: i64,
+        completed: Option<(i32, i32)>,
+    ) -> Result<bool> {
+        let result = match completed {
+            Some((items, duplicated)) => sqlx::query(
+                "UPDATE empresite_pages SET in_progress = 0, started_at = datetime('now'), items = ?, duplicated = ? WHERE id = ?",
+            )
+            .bind(items)
+            .bind(duplicated),
+            None => sqlx::query(
+                "UPDATE empresite_pages SET in_progress = 0, started_at = datetime('now') WHERE id = ?",
+            ),
         }
-        let mut builder =
-            sqlx::QueryBuilder::new("INSERT OR IGNORE INTO coincidences (name, web, email, tfno, maps) ");
-        builder.push_values(filtered, |mut b, c| {
-            b.push_bind(c.name);
-            b.push_bind(c.web.unwrap_or_default());
-            b.push_bind(c.email.unwrap_or_default());
-            b.push_bind(c.tfno.unwrap_or_default());
-            b.push_bind(&c.maps);
-        });
-        let result = builder.build().execute(&self.pool).await?;
-        Ok(result.rows_affected() as u64)
+        .bind(page_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 }

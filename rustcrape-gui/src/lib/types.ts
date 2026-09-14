@@ -1,16 +1,27 @@
 export type Route = "settings" | "project" | "execution";
 
-export interface PersistentConfig {
-  zoom: number;
-  search_query: string;
-}
+export type ExecutionMode = "Sequential" | "Parallel";
 
-export interface SearchConfig {
-  persistent: PersistentConfig;
+export interface GoogleMapsConfig {
+  enabled: boolean;
+  search_query: string;
+  zoom: number;
   stop_threshold: number;
   delay_min: number;
   delay_max: number;
   headless: boolean;
+  rate_limit: number;
+  iterations: number;
+}
+
+export interface EmpresiteConfig {
+  enabled: boolean;
+  search_query: string;
+  delay_min: number;
+  delay_max: number;
+  headless: boolean;
+  rate_limit: number;
+  iterations: number;
 }
 
 export type DbConfig =
@@ -26,9 +37,9 @@ export function isSqlite(db: DbConfig): db is { type: "sqlite"; path?: string | 
 }
 
 export interface Config {
-  search: SearchConfig;
-  rate_limit: number;
-  iterations: number;
+  google_maps: GoogleMapsConfig;
+  empresite: EmpresiteConfig;
+  execution_mode: ExecutionMode;
   db: DbConfig;
   nordvpn_path: string | null;
   browser_path: string | null;
@@ -75,19 +86,35 @@ export interface Announcement {
   closeable: boolean;
 }
 
-export interface ExecutionConfig {
-  rate_limit: number;
-  iterations: number;
+export interface GmapsExecutionConfig {
+  stop_threshold: number;
   delay_min: number;
   delay_max: number;
-  stop_threshold: number;
+  headless: boolean;
+  rate_limit: number;
+  iterations: number;
+}
+
+export interface EmpresiteExecutionConfig {
+  delay_min: number;
+  delay_max: number;
+  headless: boolean;
+  rate_limit: number;
+  iterations: number;
+}
+
+export interface ExecutionConfig {
+  execution_mode: ExecutionMode;
+  google_maps: GmapsExecutionConfig;
+  empresite: EmpresiteExecutionConfig;
   use_vpn: boolean;
   ip_rotation_frequency: number;
-  headless: boolean;
 }
 
 export interface ProjectDraft {
   name: string;
+  enable_google_maps: boolean;
+  enable_empresite: boolean;
   search_query: string;
   zoom: number;
   use_mysql: boolean;

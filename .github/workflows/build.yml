@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, empresite-update]
   workflow_dispatch:
 
 jobs:

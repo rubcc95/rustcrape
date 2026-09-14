@@ -1,6 +1,5 @@
-use crate::generator::SPAIN;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, PersistentConfig};
+use crate::types::{Coincidence, DbConfig, GoogleMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::{MySqlPool, Row};
@@ -17,11 +16,20 @@ const NEW_BOUND_COLUMNS: &[(&str, &str)] = &[
     ("started_at", "TIMESTAMP NULL DEFAULT NULL"),
 ];
 
+// Tablas imprescindibles para reconocer la base de datos como de rustcrape.
+// `bounds` (Google Maps) y `empresite_pages` (Empresite) se crean bajo demanda
+// segun el target que se vaya a usar.
+const REQUIRED_TABLES: &[&str] = &[
+    "coincidences",
+    "configuration_rustcrape",
+];
+
 struct ColumnInfo {
     name: String,
     data_type: String,
 }
 
+#[derive(Clone)]
 pub struct MysqlPersistence {
     pool: MySqlPool,
     db_name: String,
@@ -38,7 +46,7 @@ pub struct MysqlPersistence {
 impl MysqlPersistence {
     pub async fn new(
         config: &DbConfig,
-        params: &mut PersistentConfig,
+        params: &mut GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         let (host, port, user, password, database) = match config {
@@ -129,26 +137,35 @@ impl MysqlPersistence {
         Ok(())
     }
 
+    async fn ensure_coincidence_columns(&self) -> Result<()> {
+        let cols = self.get_columns("coincidences").await?;
+        let existing: std::collections::HashSet<String> =
+            cols.iter().map(|c| c.name.clone()).collect();
+
+        // Migra la antigua columna `maps` a `source_url`.
+        if existing.contains("maps") && !existing.contains("source_url") {
+            sqlx::raw_sql("ALTER TABLE coincidences CHANGE COLUMN maps source_url TEXT")
+                .execute(&self.pool)
+                .await?;
+        }
+
+        if !existing.contains("source") {
+            sqlx::raw_sql(
+                "ALTER TABLE coincidences ADD COLUMN source VARCHAR(50) NOT NULL DEFAULT ''",
+            )
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
     async fn create_tables(
         &self,
-        params: &PersistentConfig,
+        params: &GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.creating_tables();
-        sqlx::raw_sql(
-            "CREATE TABLE IF NOT EXISTS bounds (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                lat FLOAT NOT NULL,
-                lng FLOAT NOT NULL,
-                in_progress TINYINT(1) NOT NULL DEFAULT 0,
-                items INT DEFAULT NULL,
-                duplicated INT DEFAULT NULL,
-                started_at TIMESTAMP NULL DEFAULT NULL,
-                UNIQUE KEY uq_bound (lat, lng)
-            )",
-        )
-        .execute(&self.pool)
-        .await?;
+        self.ensure_optional_tables().await?;
 
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS coincidences (
@@ -157,7 +174,8 @@ impl MysqlPersistence {
                 web VARCHAR(255) DEFAULT '',
                 email VARCHAR(255) DEFAULT '',
                 tfno VARCHAR(50) DEFAULT '',
-                maps TEXT DEFAULT '',
+                source_url TEXT DEFAULT '',
+                source VARCHAR(50) NOT NULL DEFAULT '',
                 creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uq_datos (name, email, web, tfno)
             )",
@@ -185,26 +203,48 @@ impl MysqlPersistence {
         .execute(&self.pool)
         .await?;
 
-        let centers = SPAIN
-            .generate_grid(params.zoom, verboser)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Ok(())
+    }
 
-        for chunk in centers.chunks(100) {
-            let mut builder = sqlx::QueryBuilder::new("INSERT IGNORE INTO bounds (lat, lng) ");
-            builder.push_values(chunk, |mut b, (lat, lng)| {
-                b.push_bind(lat);
-                b.push_bind(lng);
-            });
-            builder.build().execute(&self.pool).await?;
-        }
+    /// Crea (si faltan) las tablas opcionales de cada target: `bounds` para
+    /// Google Maps y `empresite_pages` para Empresite. No se exigen en
+    /// `REQUIRED_TABLES` para permitir bases de datos de una sola web.
+    async fn ensure_optional_tables(&self) -> Result<()> {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS bounds (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                lat FLOAT NOT NULL,
+                lng FLOAT NOT NULL,
+                in_progress TINYINT(1) NOT NULL DEFAULT 0,
+                items INT DEFAULT NULL,
+                duplicated INT DEFAULT NULL,
+                started_at TIMESTAMP NULL DEFAULT NULL,
+                UNIQUE KEY uq_bound (lat, lng)
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
 
-        verboser.generating_bounds(centers.len(), centers.len(), centers.len());
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS empresite_pages (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                page INT NOT NULL,
+                in_progress TINYINT(1) NOT NULL DEFAULT 0,
+                items INT DEFAULT NULL,
+                duplicated INT DEFAULT NULL,
+                started_at TIMESTAMP NULL DEFAULT NULL,
+                UNIQUE KEY uq_empresite_page (page)
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
     async fn ensure_tables(
         &self,
-        params: &mut PersistentConfig,
+        params: &mut GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.verifying_db();
@@ -220,15 +260,20 @@ impl MysqlPersistence {
         let existing: std::collections::HashSet<String> =
             rows.iter().map(|row| row.get(0)).collect();
 
-        let bounds_ok = existing.contains("bounds");
-        let coincidences_ok = existing.contains("coincidences");
-        let config_ok = existing.contains("configuration_rustcrape");
+        let missing: Vec<&str> = REQUIRED_TABLES
+            .iter()
+            .filter(|t| !existing.contains(**t))
+            .copied()
+            .collect();
 
-        if bounds_ok && coincidences_ok && config_ok {
+        if missing.is_empty() {
+            self.ensure_optional_tables().await?;
+            self.ensure_bound_columns().await?;
+            self.ensure_coincidence_columns().await?;
+
             self.validate_bounds().await?;
             self.validate_coincidences().await?;
             self.validate_coincidences_unique().await?;
-            self.ensure_bound_columns().await?;
 
             let config_row = sqlx::query(
                 "SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1",
@@ -241,27 +286,10 @@ impl MysqlPersistence {
             return Ok(());
         }
 
-        if bounds_ok || coincidences_ok || config_ok {
-            let mut present = Vec::new();
-            let mut missing = Vec::new();
-            for (name, ok) in [
-                ("bounds", bounds_ok),
-                ("coincidences", coincidences_ok),
-                ("configuration_rustcrape", config_ok),
-            ] {
-                if ok { present.push(name); } else { missing.push(name); }
-            }
-            anyhow::bail!(
-                "Tablas existentes: {}. Tablas faltantes: {}. Deben existir todas o ninguna.",
-                present.join(", "),
-                missing.join(", ")
-            );
-        }
-
         anyhow::bail!(
-            "La base de datos '{}' contiene tablas inesperadas ({}). Se esperaba una base de datos vacía o con las tablas rustcrape.",
-            self.db_name,
-            existing.iter().cloned().collect::<Vec<_>>().join(", ")
+            "Tablas faltantes: {}. Deben existir todas: {}.",
+            missing.join(", "),
+            REQUIRED_TABLES.join(", ")
         );
     }
 
@@ -287,7 +315,7 @@ impl MysqlPersistence {
 
     async fn validate_coincidences(&self) -> Result<()> {
         let cols = self.get_columns("coincidences").await?;
-        let required = ["name", "email", "web", "tfno", "maps"];
+        let required = ["name", "email", "web", "tfno", "source_url"];
         let names: std::collections::HashSet<&str> = cols.iter().map(|c| c.name.as_str()).collect();
         let missing: Vec<&str> = required.iter().filter(|n| !names.contains(*n)).copied().collect();
         if !missing.is_empty() {
@@ -319,10 +347,52 @@ impl MysqlPersistence {
 }
 
 impl Persistence for MysqlPersistence {
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64> {
+        let filtered: Vec<Coincidence> = data
+            .into_iter()
+            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
+            .collect();
+        if filtered.is_empty() {
+            return Ok(0);
+        }
+        let mut builder = sqlx::QueryBuilder::new(
+            "INSERT IGNORE INTO coincidences (name, web, email, tfno, source_url, source) ",
+        );
+        builder.push_values(filtered, |mut b, c| {
+            b.push_bind(c.name);
+            b.push_bind(c.web.unwrap_or_default());
+            b.push_bind(c.email.unwrap_or_default());
+            b.push_bind(c.tfno.unwrap_or_default());
+            b.push_bind(c.source_url);
+            b.push_bind(source);
+        });
+        let result = builder.build().execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn has_bounds(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM bounds LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some())
+    }
+
+    async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()> {
+        for chunk in centers.chunks(100) {
+            let mut builder = sqlx::QueryBuilder::new("INSERT IGNORE INTO bounds (lat, lng) ");
+            builder.push_values(chunk, |mut b, (lat, lng)| {
+                b.push_bind(lat);
+                b.push_bind(lng);
+            });
+            builder.build().execute(&self.pool).await?;
+        }
+        Ok(())
+    }
+
     async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
         Ok(
             sqlx::query(
-                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL LIMIT 1"
+                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL ORDER BY id LIMIT 1"
             )
             .fetch_all(&self.pool)
             .await?
@@ -363,24 +433,62 @@ impl Persistence for MysqlPersistence {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64> {
-        let filtered: Vec<Coincidence> = data
+    async fn has_empresite_pages(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM empresite_pages LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some())
+    }
+
+    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
+        sqlx::query("INSERT IGNORE INTO empresite_pages (page) VALUES (?)")
+            .bind(page)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+        Ok(
+            sqlx::query(
+                "SELECT id, page FROM empresite_pages WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL ORDER BY page ASC LIMIT 1",
+            )
+            .fetch_all(&self.pool)
+            .await?
             .into_iter()
-            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
-            .collect();
-        if filtered.is_empty() {
-            return Ok(0);
+            .next()
+            .map(|row| (row.get("id"), row.get("page"))),
+        )
+    }
+
+    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE empresite_pages SET in_progress = 1, started_at = NOW() WHERE id = ?",
+        )
+        .bind(page_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn release_empresite_page(
+        &self,
+        page_id: i64,
+        completed: Option<(i32, i32)>,
+    ) -> Result<bool> {
+        let result = match completed {
+            Some((items, duplicated)) => sqlx::query(
+                "UPDATE empresite_pages SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? WHERE id = ?",
+            )
+            .bind(items)
+            .bind(duplicated),
+            None => sqlx::query(
+                "UPDATE empresite_pages SET in_progress = 0, started_at = NOW() WHERE id = ?",
+            ),
         }
-        let mut builder =
-            sqlx::QueryBuilder::new("INSERT IGNORE INTO coincidences (name, web, email, tfno, maps) ");
-        builder.push_values(filtered, |mut b, c| {
-            b.push_bind(c.name);
-            b.push_bind(c.web.unwrap_or_default());
-            b.push_bind(c.email.unwrap_or_default());
-            b.push_bind(c.tfno.unwrap_or_default());
-            b.push_bind(&c.maps);
-        });
-        let result = builder.build().execute(&self.pool).await?;
-        Ok(result.rows_affected())
+        .bind(page_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 }

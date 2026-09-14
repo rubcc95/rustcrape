@@ -1,4 +1,6 @@
-use crate::types::{Coincidence, SearchContext};
+use crate::google_maps::config::GoogleMapsParams;
+use crate::scraper::ScrapeResult;
+use crate::types::{Coincidence, GoogleMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use chromiumoxide::cdp::browser_protocol::input::{
@@ -101,10 +103,6 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
                 || lower.contains("accept all")
             {
                 return Ok(Some(el));
-                // el.click().await?;
-                // eprintln!("[DEBUG] accept_cookies result: aria:{}", label);
-                // tokio::time::sleep(Duration::from_millis(500)).await;
-                // return Ok(());
             }
         }
     }
@@ -134,18 +132,11 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
             };
             if t.contains("aceptar") || t.contains("accept") {
                 return Ok(Some(submit_btn));
-                // submit_btn.click().await?;
-                // eprintln!("[DEBUG] accept_cookies result: form:{}", t);
-                // tokio::time::sleep(Duration::from_millis(500)).await;
-                // return Ok(None);
             }
         }
     }
 
-    return Ok(None);
-    // eprintln!("[DEBUG] accept_cookies result: notfound");
-    // tokio::time::sleep(Duration::from_millis(500)).await;
-    // Ok(())
+    Ok(None)
 }
 
 fn strip_website(label: &str) -> String {
@@ -265,11 +256,13 @@ async fn extract_current_result(
 
 async fn scrape_single(
     page: &Page,
-    ctx: SearchContext<'_>,
-    verboser: &impl Verboser,
+    params: &GoogleMapsParams,
+    config: &GoogleMapsConfig,
+    verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
+    let _ = params;
     verboser.found_single_coincidence();
-    tokio::time::sleep(random_delay(ctx.delay_min, ctx.delay_max)).await;
+    tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
     if page.find_element("h1.DUwDvf").await.is_ok() {
         let name_js = r#"( () => { const el = document.querySelector('h1.DUwDvf'); return el ? el.textContent.trim() : ''; })() "#;
         let name: String = page.evaluate(name_js).await?.into_value()?;
@@ -282,7 +275,7 @@ async fn scrape_single(
                 tfno,
                 email,
                 web,
-                maps: clean_maps_url(&current_url),
+                source_url: clean_maps_url(&current_url),
             }]);
         }
     }
@@ -362,15 +355,16 @@ fn extract_coords_from_href(href: &str) -> (f32, f32) {
 
 async fn scrape_feed(
     page: &Page,
-    ctx: SearchContext<'_>,
-    verboser: &impl Verboser,
+    params: &GoogleMapsParams,
+    config: &GoogleMapsConfig,
+    verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
     verboser.found_multiple_coincidences();
     let mut coincidences = Vec::new();
     let mut scrolls_without_new = 0u32;
     let mut fuera = 0u32;
 
-    let radio = 180.0 / (2u32.pow(ctx.zoom) as f32);
+    let radio = 180.0 / (2u32.pow(config.zoom) as f32);
 
     loop {
         if verboser.is_cancelled() {
@@ -385,7 +379,7 @@ async fn scrape_feed(
                 return Ok(coincidences);
             }
 
-            tokio::time::sleep(random_delay(ctx.delay_min, ctx.delay_max)).await;
+            tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
 
             let Some(href) = el.attribute("href").await? else {
                 continue;
@@ -394,10 +388,10 @@ async fn scrape_feed(
             let (lat, lng) = extract_coords_from_href(&href);
 
             if lat != 0.0 && lng != 0.0 {
-                let dist = (lat - ctx.lat).abs().max((lng - ctx.lng).abs());
+                let dist = (lat - params.lat).abs().max((lng - params.lng).abs());
                 if dist > radio {
                     fuera += 1;
-                    if fuera >= ctx.stop_threshold {
+                    if fuera >= config.stop_threshold {
                         return Ok(coincidences);
                     }
                 } else {
@@ -442,7 +436,7 @@ async fn scrape_feed(
                         tfno,
                         email,
                         web,
-                        maps: clean_maps_url(&href),
+                        source_url: clean_maps_url(&href),
                     });
                 }
                 Err(e) => {
@@ -468,8 +462,7 @@ async fn scrape_feed(
             }
         }
 
-        tokio::time::sleep(random_delay(ctx.delay_min, ctx.delay_max)).await;
-        //tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
 
         let new_total = page.find_elements("a[href*=\"/maps/place/\"]").await?.len();
 
@@ -489,13 +482,14 @@ async fn scrape_feed(
 
 pub async fn scrape(
     instance: &Browser,
-    ctx: SearchContext<'_>,
-    verboser: &impl Verboser,
-) -> Result<Vec<Coincidence>> {
+    params: &GoogleMapsParams,
+    config: &GoogleMapsConfig,
+    verboser: &dyn Verboser,
+) -> Result<ScrapeResult> {
     verboser.accepting_cookies();
     let url = format!(
         "https://www.google.com/maps/search/{}/@{},{},{}z",
-        ctx.search_query, ctx.lat, ctx.lng, ctx.zoom
+        config.search_query, params.lat, params.lng, config.zoom
     );
     let page = instance.new_page(&url).await?;
     page.wait_for_navigation().await?;
@@ -507,7 +501,7 @@ pub async fn scrape(
     verboser.searching_coincidences();
 
     if verboser.is_cancelled() {
-        return Ok(Vec::new());
+        return Ok(ScrapeResult::empty(false));
     }
 
     enum Mode {
@@ -566,10 +560,13 @@ pub async fn scrape(
         Duration::from_secs(10),
     )
     .await?;
-    match mode {
-        Mode::Feed => scrape_feed(&page, ctx, verboser).await,
-        Mode::Single => scrape_single(&page, ctx, verboser).await,
-    }
+
+    let coincidences = match mode {
+        Mode::Feed => scrape_feed(&page, params, config, verboser).await?,
+        Mode::Single => scrape_single(&page, params, config, verboser).await?,
+    };
+
+    Ok(ScrapeResult::new(coincidences, false))
 }
 
 #[cfg(test)]
@@ -654,7 +651,6 @@ mod tests {
         let (lat, lng) = extract_coords_from_href(
             "https://www.google.com/maps/place/Negocio/@40.4168,-3.7038,17z?&3d40.4168&4d-3.7038"
         );
-        // Primero prueba @ que funciona siempre
         assert!((lat - 40.4168).abs() < 0.001, "lat esperada 40.4168, got {}", lat);
         assert!((lng - -3.7038).abs() < 0.001, "lng esperada -3.7038, got {}", lng);
     }
@@ -670,7 +666,6 @@ mod tests {
 
     #[test]
     fn test_extract_coords_canarias() {
-        // Canarias: lat positiva, lng negativa (Canarias está al oeste del meridiano)
         let (lat, lng) = extract_coords_from_href(
             "/maps/place/Tinte+Canarias/@28.1234,-15.4567,14z/data=!3m1!4b1"
         );

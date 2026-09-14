@@ -82,9 +82,9 @@
 
   :global(.log-opening_browser),
   :global(.log-scraping_start),
-  :global(.log-generating_bounds),
+  :global(.log-seeding_tasks),
   :global(.log-connecting_db),
-  :global(.log-obtaining_bound) {
+  :global(.log-obtaining_task) {
     color: var(--text, #e0e0e0);
   }
 
@@ -100,7 +100,8 @@
   :global(.log-found_single_coincidence),
   :global(.log-found_multiple_coincidences),
   :global(.log-closing_browser),
-  :global(.log-released_bound) {
+  :global(.log-claimed_task),
+  :global(.log-released_task) {
     color: var(--text-muted, #8892b0);
   }
 </style>

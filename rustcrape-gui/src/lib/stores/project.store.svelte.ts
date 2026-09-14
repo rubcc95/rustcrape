@@ -11,23 +11,37 @@ import {
   deleteConfig,
   setLastSelected,
 } from "../tauri";
+import { isMysql } from "../types";
 import { appStore } from "./app.store.svelte";
 
-class ProjectStore {
-  projects = $state<SavedConfig[]>([]);
-  currentProject = $state<SavedConfig | null>(null);
-  executionConfig = $state<ExecutionConfig>({
-    rate_limit: 0,
-    iterations: 0,
-    delay_min: 500,
-    delay_max: 2000,
-    stop_threshold: 3,
+function defaultExecutionConfig(): ExecutionConfig {
+  return {
+    execution_mode: "Sequential",
+    google_maps: {
+      stop_threshold: 3,
+      delay_min: 500,
+      delay_max: 2000,
+      headless: false,
+      rate_limit: 0,
+      iterations: 0,
+    },
+    empresite: {
+      delay_min: 500,
+      delay_max: 2000,
+      headless: false,
+      rate_limit: 0,
+      iterations: 0,
+    },
     use_vpn: true,
     ip_rotation_frequency: 0,
-    headless: false,
-  });
-  projectDraft = $state<ProjectDraft>({
+  };
+}
+
+function defaultProjectDraft(): ProjectDraft {
+  return {
     name: "",
+    enable_google_maps: true,
+    enable_empresite: false,
     search_query: "",
     zoom: 12,
     use_mysql: false,
@@ -36,7 +50,14 @@ class ProjectStore {
     db_database: "rustcrape",
     db_user: "root",
     db_password: "",
-  });
+  };
+}
+
+class ProjectStore {
+  projects = $state<SavedConfig[]>([]);
+  currentProject = $state<SavedConfig | null>(null);
+  executionConfig = $state<ExecutionConfig>(defaultExecutionConfig());
+  projectDraft = $state<ProjectDraft>(defaultProjectDraft());
 
   get isNewProject(): boolean {
     return this.currentProject === null;
@@ -65,18 +86,27 @@ class ProjectStore {
         }
       : { type: "sqlite", path: this.getOrCreateDbPath() };
     return {
-      search: {
-        persistent: {
-          zoom: this.projectDraft.zoom,
-          search_query: this.projectDraft.search_query,
-        },
-        stop_threshold: this.executionConfig.stop_threshold,
-        delay_min: this.executionConfig.delay_min,
-        delay_max: this.executionConfig.delay_max,
-        headless: this.executionConfig.headless,
+      google_maps: {
+        enabled: this.projectDraft.enable_google_maps,
+        search_query: this.projectDraft.search_query,
+        zoom: this.projectDraft.zoom,
+        stop_threshold: this.executionConfig.google_maps.stop_threshold,
+        delay_min: this.executionConfig.google_maps.delay_min,
+        delay_max: this.executionConfig.google_maps.delay_max,
+        headless: this.executionConfig.google_maps.headless,
+        rate_limit: this.executionConfig.google_maps.rate_limit,
+        iterations: this.executionConfig.google_maps.iterations,
       },
-      rate_limit: this.executionConfig.rate_limit,
-      iterations: this.executionConfig.iterations,
+      empresite: {
+        enabled: this.projectDraft.enable_empresite,
+        search_query: this.projectDraft.search_query,
+        delay_min: this.executionConfig.empresite.delay_min,
+        delay_max: this.executionConfig.empresite.delay_max,
+        headless: this.executionConfig.empresite.headless,
+        rate_limit: this.executionConfig.empresite.rate_limit,
+        iterations: this.executionConfig.empresite.iterations,
+      },
+      execution_mode: this.executionConfig.execution_mode,
       db,
       nordvpn_path: this.executionConfig.use_vpn
         ? gs.nordvpn_path
@@ -92,52 +122,46 @@ class ProjectStore {
     this.currentProject = project;
     const c = project.config;
     this.executionConfig = {
-      rate_limit: c.rate_limit,
-      iterations: c.iterations,
-      delay_min: c.search.delay_min,
-      delay_max: c.search.delay_max,
-      stop_threshold: c.search.stop_threshold,
+      execution_mode: c.execution_mode,
+      google_maps: {
+        stop_threshold: c.google_maps.stop_threshold,
+        delay_min: c.google_maps.delay_min,
+        delay_max: c.google_maps.delay_max,
+        headless: c.google_maps.headless,
+        rate_limit: c.google_maps.rate_limit,
+        iterations: c.google_maps.iterations,
+      },
+      empresite: {
+        delay_min: c.empresite.delay_min,
+        delay_max: c.empresite.delay_max,
+        headless: c.empresite.headless,
+        rate_limit: c.empresite.rate_limit,
+        iterations: c.empresite.iterations,
+      },
       use_vpn: c.nordvpn_path !== null && c.nordvpn_path !== "",
       ip_rotation_frequency: c.ip_rotation_frequency,
-      headless: c.search.headless,
     };
-    const useMysql = c.db.type === "mysql";
+    const db = c.db;
+    const useMysql = isMysql(db);
     this.projectDraft = {
       name: project.name,
-      search_query: c.search.persistent.search_query,
-      zoom: c.search.persistent.zoom,
+      enable_google_maps: c.google_maps.enabled,
+      enable_empresite: c.empresite.enabled,
+      search_query: c.google_maps.search_query,
+      zoom: c.google_maps.zoom,
       use_mysql: useMysql,
-      db_host: useMysql ? c.db.host : "localhost",
-      db_port: useMysql ? c.db.port : 3306,
-      db_database: useMysql ? c.db.database : "rustcrape",
-      db_user: useMysql ? c.db.user : "root",
-      db_password: useMysql ? c.db.password : "",
+      db_host: useMysql ? db.host : "localhost",
+      db_port: useMysql ? db.port : 3306,
+      db_database: useMysql ? db.database : "rustcrape",
+      db_user: useMysql ? db.user : "root",
+      db_password: useMysql ? db.password : "",
     };
   }
 
   resetToNew(): void {
     this.currentProject = null;
-    this.executionConfig = {
-      rate_limit: 0,
-      iterations: 0,
-      delay_min: 500,
-      delay_max: 2000,
-      stop_threshold: 3,
-      use_vpn: true,
-      ip_rotation_frequency: 0,
-      headless: false,
-    };
-    this.projectDraft = {
-      name: "",
-      search_query: "",
-      zoom: 12,
-      use_mysql: false,
-      db_host: "localhost",
-      db_port: 3306,
-      db_database: "rustcrape",
-      db_user: "root",
-      db_password: "",
-    };
+    this.executionConfig = defaultExecutionConfig();
+    this.projectDraft = defaultProjectDraft();
   }
 
   async loadProjects(): Promise<void> {

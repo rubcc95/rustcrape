@@ -16,6 +16,50 @@
       placeholder="Mi proyecto"
     />
   </div>
+</div>
+
+<div class="panel">
+  <h4>Objetivos</h4>
+
+  <div class="toggle-row">
+    <div
+      class="check-track"
+      class:checked={projectStore.projectDraft.enable_google_maps}
+      role="checkbox"
+      aria-checked={projectStore.projectDraft.enable_google_maps}
+      aria-label="Google Maps"
+      tabindex="0"
+      onclick={() => projectStore.projectDraft.enable_google_maps = !projectStore.projectDraft.enable_google_maps}
+      onkeydown={(e) => e.key === 'Enter' && (projectStore.projectDraft.enable_google_maps = !projectStore.projectDraft.enable_google_maps)}
+    >
+      <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
+      </svg>
+    </div>
+    <span class="toggle-label">Google Maps</span>
+  </div>
+
+  <div class="toggle-row">
+    <div
+      class="check-track"
+      class:checked={projectStore.projectDraft.enable_empresite}
+      role="checkbox"
+      aria-checked={projectStore.projectDraft.enable_empresite}
+      aria-label="Empresite"
+      tabindex="0"
+      onclick={() => projectStore.projectDraft.enable_empresite = !projectStore.projectDraft.enable_empresite}
+      onkeydown={(e) => e.key === 'Enter' && (projectStore.projectDraft.enable_empresite = !projectStore.projectDraft.enable_empresite)}
+    >
+      <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
+      </svg>
+    </div>
+    <span class="toggle-label">Empresite (eleconomista)</span>
+  </div>
+</div>
+
+<div class="panel">
+  <h4>Búsqueda</h4>
 
   <div class="field">
     <label for="search-query">Término de búsqueda</label>
@@ -26,15 +70,19 @@
     />
   </div>
 
-  <div class="field-row">
-    <NumberInput
-      label="Zoom"
-      id="zoom"
-      min={1}
-      max={20}
-      bind:value={projectStore.projectDraft.zoom}
-    />
-  </div>
+  {#if projectStore.projectDraft.enable_google_maps}
+    <div class="field-row">
+      <NumberInput
+        label="Zoom"
+        id="zoom"
+        min={1}
+        max={20}
+        bind:value={projectStore.projectDraft.zoom}
+      />
+    </div>
+  {/if}
+
+  <p class="hint">El término se usa para buscar en las webs seleccionadas.</p>
 </div>
 
 <div class="panel">

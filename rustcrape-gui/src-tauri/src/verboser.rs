@@ -33,13 +33,13 @@ impl TauriVerboser {
             },
         );
     }
-}
+} 
 
 impl rustcrape::verboser::Verboser for TauriVerboser {
-    fn generating_bounds(&self, checked: usize, valid: usize, total: usize) {
+    fn seeding_tasks(&self, checked: usize, valid: usize, total: usize) {
         self.emit(
-            "generating_bounds",
-            format!("Generando bounds: {checked} revisados, {valid} válidos de {total} totales"),
+            "seeding_tasks",
+            format!("Generando tareas: {checked} revisados, {valid} válidos de {total} totales"),
         );
     }
 
@@ -69,29 +69,26 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         );
     }
 
-    fn obtaining_bound(&self) {
-        self.emit("obtaining_bound", "Obteniendo bound para procesar...".into());
+    fn obtaining_task(&self) {
+        self.emit("obtaining_task", "Obteniendo tarea para procesar...".into());
     }
 
-    fn already_claimed_bound(&self, lat: f32, lng: f32) {
-        self.emit(
-            "claimed_bound",
-            format!("Bound reclamado en ({lat}, {lng})"),
-        );
+    fn claimed_task(&self, label: &str) {
+        self.emit("claimed_task", format!("Tarea reclamada en {label}"));
     }
 
-    fn released_bound(&self) {
-        self.emit("released_bound", "Bound liberado".into());
+    fn released_task(&self) {
+        self.emit("released_task", "Tarea liberada".into());
     }
 
     fn finished(&self) {
         self.emit("finished", "Procesamiento completado.".into());
     }
 
-    fn opening_browser(&self, lat: f32, lng: f32) {
+    fn opening_browser(&self, label: &str) {
         self.emit(
             "opening_browser",
-            format!("Abriendo navegador en ({lat}, {lng})..."),
+            format!("Abriendo navegador en {label}..."),
         );
     }
 

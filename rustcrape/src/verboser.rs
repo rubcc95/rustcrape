@@ -1,18 +1,24 @@
+use std::time::Duration;
 use crate::types::Coincidence;
 
-pub trait Verboser: Send + Sync {
-    fn generating_bounds(&self, checked: usize, valid: usize, total: usize);
+pub trait Verboser: Send + Sync + 'static {
+    // Preparacion / base de datos
+    fn seeding_tasks(&self, checked: usize, valid: usize, total: usize);
     fn connecting_db(&self);
     fn creating_db(&self);
     fn verifying_db(&self);
     fn creating_tables(&self);
-    fn rate_limit_wait(&self, wait: std::time::Duration);
-    fn obtaining_bound(&self);
-    fn already_claimed_bound(&self, lat: f32, lng: f32);
-    fn released_bound(&self);
+
+    // Motor
+    fn rate_limit_wait(&self, wait: Duration);
+    fn obtaining_task(&self);
+    fn claimed_task(&self, label: &str);
+    fn released_task(&self);
     fn finished(&self);
-    fn opening_browser(&self, lat: f32, lng: f32);
+    fn opening_browser(&self, label: &str);
     fn closing_browser(&self);
+
+    // Scraping
     fn scraping_start(&self);
     fn accepting_cookies(&self);
     fn searching_coincidences(&self);
@@ -21,9 +27,11 @@ pub trait Verboser: Send + Sync {
     fn processed_coincidence(&self, name: &str, count: usize);
     fn writing_coincidences(&self, output: &[Coincidence]);
     fn written_coincidences(&self, count: i32);
+
+    // VPN
     fn vpn_rotating(&self) {}
     fn vpn_rotated(&self) {}
-    fn vpn_not_available(&self) {}  
+    fn vpn_not_available(&self) {}
 
     fn warn(&self, msg: &str);
     fn error(&self, err: &str);
@@ -38,7 +46,7 @@ pub struct DebugProgress;
 
 impl Verboser for DebugProgress {
     #[inline(always)]
-    fn generating_bounds(&self, _: usize, _: usize, _: usize) {}
+    fn seeding_tasks(&self, _: usize, _: usize, _: usize) {}
     #[inline(always)]
     fn connecting_db(&self) {}
     #[inline(always)]
@@ -48,17 +56,17 @@ impl Verboser for DebugProgress {
     #[inline(always)]
     fn creating_tables(&self) {}
     #[inline(always)]
-    fn rate_limit_wait(&self, _: std::time::Duration) {}
+    fn rate_limit_wait(&self, _: Duration) {}
     #[inline(always)]
-    fn obtaining_bound(&self) {}
+    fn obtaining_task(&self) {}
     #[inline(always)]
-    fn released_bound(&self) {}
+    fn claimed_task(&self, _: &str) {}
+    #[inline(always)]
+    fn released_task(&self) {}
     #[inline(always)]
     fn finished(&self) {}
     #[inline(always)]
-    fn already_claimed_bound(&self, _: f32, _: f32) {}
-    #[inline(always)]
-    fn opening_browser(&self, _: f32, _: f32) {}
+    fn opening_browser(&self, _: &str) {}
     #[inline(always)]
     fn closing_browser(&self) {}
     #[inline(always)]
@@ -82,7 +90,7 @@ impl Verboser for DebugProgress {
     #[inline(always)]
     fn vpn_rotated(&self) {}
     #[inline(always)]
-    fn vpn_not_available(&self) {}    
+    fn vpn_not_available(&self) {}
     #[inline(always)]
     fn warn(&self, _: &str) {}
     #[inline(always)]
@@ -95,8 +103,8 @@ pub struct DebugVerboser;
 
 #[cfg(debug_assertions)]
 impl Verboser for DebugVerboser {
-    fn generating_bounds(&self, checked: usize, valid: usize, total: usize) {
-        eprintln!("Generating bounds: checked = {checked}, valid = {valid}, total = {total}",);
+    fn seeding_tasks(&self, checked: usize, valid: usize, total: usize) {
+        eprintln!("Seeding tasks: checked = {checked}, valid = {valid}, total = {total}",);
     }
     fn connecting_db(&self) {
         eprintln!("Connecting to database...");
@@ -110,26 +118,26 @@ impl Verboser for DebugVerboser {
     fn creating_tables(&self) {
         eprintln!("Creating tables...");
     }
-    fn rate_limit_wait(&self, wait: std::time::Duration) {
+    fn rate_limit_wait(&self, wait: Duration) {
         let total_secs = wait.as_secs();
         let mins = total_secs / 60;
         let secs = total_secs % 60;
         eprintln!("Rate limit reached. Waiting for {mins}:{secs:02} minutes...");
     }
-    fn obtaining_bound(&self) {
-        eprintln!("Obtaining bound to process...");
+    fn obtaining_task(&self) {
+        eprintln!("Obtaining task to process...");
+    }
+    fn claimed_task(&self, label: &str) {
+        eprintln!("Claimed task at {label}");
+    }
+    fn released_task(&self) {
+        eprintln!("Released task");
     }
     fn finished(&self) {
-        eprintln!("Finished processing all bounds.");
+        eprintln!("Finished processing all tasks.");
     }
-    fn already_claimed_bound(&self, lat: f32, lng: f32) {
-        eprintln!("Claimed bound at ({lat}, {lng})");
-    }
-    fn released_bound(&self) {
-        eprintln!("Released bound");
-    }
-    fn opening_browser(&self, lat: f32, lng: f32) {
-        eprintln!("Opening browser at ({lat}, {lng})...");
+    fn opening_browser(&self, label: &str) {
+        eprintln!("Opening browser at {label}...");
     }
     fn closing_browser(&self) {
         eprintln!("Closing browser...");

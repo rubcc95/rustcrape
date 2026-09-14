@@ -11,24 +11,53 @@
       {#if executionStore.configSnapshot}
         <div class="config-info">
           <div class="config-row">
-            <span class="config-label">Rate limit</span>
+            <span class="config-label">Modo</span>
             <span class="config-value"
-              >{executionStore.configSnapshot.rate_limit}/h</span
+              >{executionStore.configSnapshot.execution_mode === "Parallel"
+                ? "Paralelo"
+                : "Secuencial"}</span
             >
           </div>
           <div class="config-row">
-            <span class="config-label">Delay</span>
+            <span class="config-label">Google Maps</span>
             <span class="config-value"
-              >{executionStore.configSnapshot.search.delay_min}ms -
-              {executionStore.configSnapshot.search.delay_max}ms</span
+              >{executionStore.configSnapshot.google_maps.enabled
+                ? "Sí"
+                : "No"}</span
             >
           </div>
+          {#if executionStore.configSnapshot.google_maps.enabled}
+            <div class="config-row">
+              <span class="config-label">Delay Maps</span>
+              <span class="config-value"
+                >{executionStore.configSnapshot.google_maps.delay_min}ms -
+                {executionStore.configSnapshot.google_maps.delay_max}ms</span
+              >
+            </div>
+            <div class="config-row">
+              <span class="config-label">Stop threshold</span>
+              <span class="config-value"
+                >{executionStore.configSnapshot.google_maps.stop_threshold}</span
+              >
+            </div>
+          {/if}
           <div class="config-row">
-            <span class="config-label">Stop threshold</span>
+            <span class="config-label">Empresite</span>
             <span class="config-value"
-              >{executionStore.configSnapshot.search.stop_threshold}</span
+              >{executionStore.configSnapshot.empresite.enabled
+                ? "Sí"
+                : "No"}</span
             >
           </div>
+          {#if executionStore.configSnapshot.empresite.enabled}
+            <div class="config-row">
+              <span class="config-label">Delay Empresite</span>
+              <span class="config-value"
+                >{executionStore.configSnapshot.empresite.delay_min}ms -
+                {executionStore.configSnapshot.empresite.delay_max}ms</span
+              >
+            </div>
+          {/if}
           <div class="config-row">
             <span class="config-label">VPN</span>
             <span class="config-value"
@@ -41,14 +70,6 @@
             <span class="config-label">Rotación IP</span>
             <span class="config-value"
               >{executionStore.configSnapshot.ip_rotation_frequency}</span
-            >
-          </div>
-          <div class="config-row">
-            <span class="config-label">Headless</span>
-            <span class="config-value"
-              >{executionStore.configSnapshot.search.headless
-                ? "Sí"
-                : "No"}</span
             >
           </div>
         </div>

@@ -1,5 +1,5 @@
 mod spain_border;
-
+ 
 pub use spain_border::SPAIN;
 
 use crate::verboser::Verboser;
@@ -23,7 +23,7 @@ impl Border {
     pub fn generate_grid(
         &self,
         zoom: u32,
-        verboser: &impl Verboser,
+        verboser: &dyn Verboser,
     ) -> Result<Vec<(f64, f64)>, String> {
         let cell_size = 360.0 / (1u64 << zoom) as f64;
         let half_size = cell_size / 2.0;
@@ -32,8 +32,8 @@ impl Border {
         let lng_count = ((BOUNDS_EAST - BOUNDS_WEST - half_size) / cell_size) as usize + 1;
         let total_cells = lat_count * lng_count;
 
-        verboser.generating_bounds(0, 0, total_cells);
-        
+        verboser.seeding_tasks(0, 0, total_cells);
+
         let mut centers = Vec::new();
 
         let mut lat = BOUNDS_SOUTH + half_size;
@@ -48,7 +48,7 @@ impl Border {
                 lng += cell_size;
             }
             total += lng_count;
-            verboser.generating_bounds(total, centers.len(), total_cells);
+            verboser.seeding_tasks(total, centers.len(), total_cells);
             lat += cell_size;
         }
 
@@ -107,10 +107,10 @@ impl Border {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::verboser::DebugProgress;
 
     #[test]
     fn test_generate_grid_zoom_12() {
-        use crate::verboser::DebugProgress;
         let result = SPAIN.generate_grid(12, &DebugProgress::default());
         assert!(result.is_ok());
         let points = result.unwrap();
@@ -120,7 +120,6 @@ mod tests {
             "expected more than 100 points for zoom=12, got {}",
             points.len()
         );
-        // all points should be within Spain's bounding box
         for (lat, lng) in &points {
             assert!(*lat >= 27.0 && *lat <= 44.2, "lat {} out of bounds", lat);
             assert!(*lng >= -18.5 && *lng <= 5.0, "lng {} out of bounds", lng);

@@ -2,10 +2,11 @@ pub mod mysql;
 pub mod sqlite;
 
 use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, PersistentConfig};
+use crate::types::{Coincidence, DbConfig, GoogleMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 
+#[derive(Clone)]
 pub enum PersistenceKind {
     Sqlite(sqlite::SqlitePersistence),
     Mysql(mysql::MysqlPersistence),
@@ -14,7 +15,7 @@ pub enum PersistenceKind {
 impl PersistenceKind {
     pub async fn create(
         config: &DbConfig,
-        params: &mut PersistentConfig,
+        params: &mut GoogleMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         match config {
@@ -34,6 +35,27 @@ impl PersistenceKind {
 }
 
 impl Persistence for PersistenceKind {
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.write_coincidences(source, data).await,
+            PersistenceKind::Mysql(p) => p.write_coincidences(source, data).await,
+        }
+    }
+
+    async fn has_bounds(&self) -> Result<bool> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.has_bounds().await,
+            PersistenceKind::Mysql(p) => p.has_bounds().await,
+        }
+    }
+
+    async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.seed_bounds(centers).await,
+            PersistenceKind::Mysql(p) => p.seed_bounds(centers).await,
+        }
+    }
+
     async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
         match self {
             PersistenceKind::Sqlite(p) => p.read_bound().await,
@@ -59,10 +81,42 @@ impl Persistence for PersistenceKind {
         }
     }
 
-    async fn write_coincidences(&self, data: Vec<Coincidence>) -> Result<u64> {
+    async fn has_empresite_pages(&self) -> Result<bool> {
         match self {
-            PersistenceKind::Sqlite(p) => p.write_coincidences(data).await,
-            PersistenceKind::Mysql(p) => p.write_coincidences(data).await,
+            PersistenceKind::Sqlite(p) => p.has_empresite_pages().await,
+            PersistenceKind::Mysql(p) => p.has_empresite_pages().await,
+        }
+    }
+
+    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.insert_empresite_page(page).await,
+            PersistenceKind::Mysql(p) => p.insert_empresite_page(page).await,
+        }
+    }
+
+    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.read_empresite_page().await,
+            PersistenceKind::Mysql(p) => p.read_empresite_page().await,
+        }
+    }
+
+    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.claim_empresite_page(page_id).await,
+            PersistenceKind::Mysql(p) => p.claim_empresite_page(page_id).await,
+        }
+    }
+
+    async fn release_empresite_page(
+        &self,
+        page_id: i64,
+        completed: Option<(i32, i32)>,
+    ) -> Result<bool> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.release_empresite_page(page_id, completed).await,
+            PersistenceKind::Mysql(p) => p.release_empresite_page(page_id, completed).await,
         }
     }
 }
