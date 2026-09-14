@@ -445,12 +445,11 @@ async fn scrape_detail(
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     if is_blocked(&detail_page).await? {
-        if ensure_unblocked(&detail_page, config, vpn, verboser)
+        if let Err(err) = ensure_unblocked(&detail_page, config, vpn, verboser)
             .await
-            .is_err()
         {
-            let _ = detail_page.close().await;
-            return Ok(DetailOutcome::Blocked);
+            let _ = detail_page.close().await?;
+            return Err(err);        
         }
     }
 
