@@ -7,7 +7,7 @@ use crate::types::{Coincidence, EmpresiteConfig};
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
 use chromiumoxide::cdp::browser_protocol::input::{
-    DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
+    DispatchKeyEventParams, DispatchKeyEventType,
 };
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
@@ -116,85 +116,63 @@ async fn is_blocked(page: &Page) -> Result<bool> {
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
-/// Offset de la casilla dentro del iframe anchor de reCAPTCHA v2 (size=normal),
-/// medido sobre el widget estandar: la casilla de 28x28 esta en (12.7, 22.3),
-/// de modo que su centro cae en ~(27, 36).
-const CAPTCHA_CHECKBOX_X: f64 = 27.0;
-const CAPTCHA_CHECKBOX_Y: f64 = 36.0;
-
-#[derive(Debug, Deserialize)]
-struct Rect {
-    x: f64,
-    y: f64,
+/// Envia una pulsacion de tecla (keyDown + keyUp) por CDP.
+async fn press_key(page: &Page, key: &str, code: &str, vk: i64) -> Result<()> {
+    let down = DispatchKeyEventParams::builder()
+        .r#type(DispatchKeyEventType::KeyDown)
+        .key(key)
+        .code(code)
+        .windows_virtual_key_code(vk)
+        .native_virtual_key_code(vk)
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let up = DispatchKeyEventParams::builder()
+        .r#type(DispatchKeyEventType::KeyUp)
+        .key(key)
+        .code(code)
+        .windows_virtual_key_code(vk)
+        .native_virtual_key_code(vk)
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    page.execute(down).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    page.execute(up).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(())
 }
 
-/// Clica la casilla del reCAPTCHA con eventos de raton reales (trusted).
+/// Activa la casilla del reCAPTCHA via teclado, sin coordenadas de pixel.
 ///
-/// El iframe del reCAPTCHA es cross-origin (OOPIF): chromiumoxide no puede
-/// evaluar su interior (el execution context vive en otra sesion/servicio), asi
-/// que clicamos por coordenadas sobre la posicion conocida de la casilla dentro
-/// del iframe. El `.click()` sintetico no vale porque reCAPTCHA ignora eventos
-/// `isTrusted=false`.
+/// El iframe del reCAPTCHA es cross-origin (OOPIF), asi que no se puede
+/// evaluar su interior ni clicar su contenido desde la pagina principal. En
+/// cambio se enfoca el iframe (el foco entra en su documento), se presiona TAB
+/// para mover el foco al checkbox interno (`#recaptcha-anchor`) y ESPACIO para
+/// activarlo. Los eventos de teclado si se enrutan al frame enfocado, a
+/// diferencia de los eventos de raton por coordenadas, cuyo enrutado falla en
+/// ventanas pequenas.
 async fn click_captcha_checkbox(page: &Page) -> Result<bool> {
-    // Posicion del iframe en el viewport de la pagina principal. Se usa
-    // getBoundingClientRect (viewport-relative) para que case con las
-    // coordenadas que espera Input.dispatchMouseEvent.
-    let iframe_rect: Option<Rect> = page
+    let ok: Option<bool> = page
         .evaluate(
             r#"(() => {
                 const f = document.querySelector("iframe[src*='recaptcha/api2/anchor']");
                 if (!f) return null;
-                f.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-                const r = f.getBoundingClientRect();
-                return { x: r.x, y: r.y };
+                f.focus();
+                return true;
             })()"#,
         )
         .await?
         .into_value()?;
 
-    let Some(iframe_rect) = iframe_rect else {
+    if ok.is_none() {
         return Ok(false);
-    };
+    }
 
-    let cx = iframe_rect.x + CAPTCHA_CHECKBOX_X;
-    let cy = iframe_rect.y + CAPTCHA_CHECKBOX_Y;
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
-    let dispatch = |event_type: DispatchMouseEventType, button: Option<(MouseButton, i64)>| {
-        let mut builder = DispatchMouseEventParams::builder()
-            .r#type(event_type)
-            .x(cx)
-            .y(cy);
-        if let Some((button, buttons)) = button {
-            builder = builder.button(button).buttons(buttons).click_count(1);
-        }
-        builder.build()
-    };
+    // TAB mueve el foco al checkbox interno del iframe.
+    press_key(page, "Tab", "Tab", 9).await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
-    let _ = page
-        .execute(
-            dispatch(DispatchMouseEventType::MouseMoved, None).map_err(|e| anyhow::anyhow!("{e}"))?,
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let _ = page
-        .execute(
-            dispatch(
-                DispatchMouseEventType::MousePressed,
-                Some((MouseButton::Left, 1)),
-            )
-            .map_err(|e| anyhow::anyhow!("{e}"))?,
-        )
-        .await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let _ = page
-        .execute(
-            dispatch(
-                DispatchMouseEventType::MouseReleased,
-                Some((MouseButton::Left, 0)),
-            )
-            .map_err(|e| anyhow::anyhow!("{e}"))?,
-        )
-        .await;
+    // ESPACIO activa la casilla.
+    press_key(page, " ", "Space", 32).await?;
 
     Ok(true)
 }
