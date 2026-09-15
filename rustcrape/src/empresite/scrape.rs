@@ -322,8 +322,6 @@ async fn unblock(
         return Ok(());
     }
 
-    // // Sin VPN y sin modo manual: pequeno backoff para no martillear.
-    // tokio::time::sleep(Duration::from_secs(30)).await;
     Err(anyhow::anyhow!(
         "no se pudo resolver el captcha de Empresite"
     ))
