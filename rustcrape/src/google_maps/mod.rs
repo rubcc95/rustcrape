@@ -2,70 +2,90 @@ pub mod config;
 mod grid;
 mod scrape;
 
-pub use config::GoogleMapsParams;
+pub use config::GMapsParams;
 pub use grid::{Border, SPAIN};
 
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 
 use anyhow::Result;
- 
-use crate::browser::Browser;
+
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
-use crate::types::GoogleMapsConfig;
+use crate::types::{Config, GMapsConfig};
 use crate::verboser::Verboser;
 
 pub struct GoogleMapsScraper {
-    config: GoogleMapsConfig,
+    // config: GoogleMapsConfig,
+    // browser_path: Option<PathBuf>,
+    // profile_dir: Option<PathBuf>,
 }
 
 impl GoogleMapsScraper {
-    pub fn new(config: GoogleMapsConfig) -> Self {
-        Self { config }
+    pub fn new(
+        // config: GoogleMapsConfig,
+        // profile_dir: Option<PathBuf>,
+        // browser_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            // config,
+            // profile_dir,
+            // browser_path,
+        }
     }
 }
 
 impl Scraper for GoogleMapsScraper {
-    type Config = GoogleMapsConfig;
-    type Params = GoogleMapsParams;
+    type Params = GMapsParams;
 
     fn name(&self) -> &'static str {
         "google_maps"
     }
 
-    fn config(&self) -> &Self::Config {
-        &self.config
+    // fn config(&self) -> &Self::Config {
+    //     &self.config
+    // }
+
+    // fn headless(&self) -> bool {
+    //     self.config.headless
+    // }
+
+    fn rate_limit(&self, config: &Config) -> Option<NonZeroU32> {
+        config.gmaps.rate_limit
     }
 
-    fn headless(&self) -> bool {
-        self.config.headless
-    }
-
-    fn rate_limit(&self) -> Option<NonZeroU32> {
-        self.config.rate_limit
-    }
-
-    fn iterations(&self) -> Option<NonZeroU32> {
-        self.config.iterations
+    fn iterations(&self, config: &Config) -> Option<NonZeroU32> {
+        config.gmaps.iterations
     }
 
     fn describe(&self, params: &Self::Params) -> String {
         format!("({}, {})", params.lat, params.lng)
     }
 
-    async fn seed<P: Persistence>(&self, persist: &P, verboser: &dyn Verboser) -> Result<()> {
+    async fn seed<P: Persistence>(&self, config: &Config, persist: &P, verboser: &dyn Verboser) -> Result<()> {
         if persist.has_bounds().await? {
-            return Ok(());
+            return Ok(()); 
         }
         let centers = SPAIN
-            .generate_grid(self.config.zoom, verboser)
+            .generate_grid(config.gmaps.zoom, verboser)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
         persist.seed_bounds(&centers).await?;
         Ok(())
     }
 
     async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
-        Ok(persist.claim_bound().await?.map(|(id, lat, lng)| (id, GoogleMapsParams { lat, lng })))
+        Ok(persist.claim_bound().await?.map(|(id, lat, lng)| {
+            (
+                id,
+                GMapsParams {
+                    lat,
+                    lng,
+                    // headless: config.google_maps.headless,
+                    // browser_path: browser_path.as_deref(),
+                    // profile_dir: profile_dir.as_deref(),
+                },
+            )
+        }))
     }
 
     async fn release<P: Persistence>(
@@ -88,10 +108,12 @@ impl Scraper for GoogleMapsScraper {
 
     async fn scrape(
         &self,
-        browser: &Browser,
+        //browser: &Browser,
+        config: &Config,
         params: &Self::Params,
         verboser: &dyn Verboser,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(browser, params, &self.config, verboser).await
+        
+        scrape::scrape(params, config, verboser).await
     }
 }

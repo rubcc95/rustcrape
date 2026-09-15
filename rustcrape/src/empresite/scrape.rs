@@ -1,16 +1,17 @@
 use anyhow::Result;
 use serde::Deserialize;
 
+use crate::browser::Browser;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
-use crate::types::{Coincidence, EmpresiteConfig};
+use crate::types::{Coincidence, Config};
 use crate::utils::*;
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
 
+use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
 use chromiumoxide::cdp::browser_protocol::page::ReloadParams;
-use chromiumoxide::{Browser, Page};
 use std::time::Duration;
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
@@ -264,18 +265,18 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
 async fn unblock(
-    //browser: &Browser,
-    page: &Page,
-    config: &EmpresiteConfig,
+    mut browser: Browser,
+    mut page: &Page,
+    config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
-) -> Result<()> {
+) -> Result<Browser> {
     verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
     // Plan A: click automatico.
     if try_solve_captcha(page, verboser).await? {
         verboser.warn("Captcha resuelto automaticamente");
-        return Ok(());
+        return Ok(browser);
     }
 
     // *** Toma la vieja ip utilizando el browser ***
@@ -284,6 +285,30 @@ async fn unblock(
     // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
     // se completa pero el captcha persiste, el bucle prueba con otra IP.
     if vpn.force_rotate_awaited(verboser).await? {
+        //let a: Vec<Option<String>> =futures::future::join_all(browser.pages().await?.iter().map(|page| page.url())).await.iter().collect::<Result<Vec<_>>>()?;
+
+        let urls = futures::future::join_all(
+            browser
+                .pages()
+                .await?
+                .into_iter()
+                .map(|page| async move { page.url().await.transpose() }),
+        )
+        .await
+        .into_iter()
+        .flatten()
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        // let a =  browser.pages().await?.into_iter().filter_map(|page| {
+        //     page.url().await..await.transpose()
+        // });
+
+        browser.close().await?;
+        browser = Browser::empresite(config).await?;
+        for url in urls {
+            browser.new_page(url).await?;
+        }
+
         // Recarga real, ignorando cache y sin bloquear en wait_for_navigation;
         // el estado se comprueba en el wait_until de readyState de abajo.
         page.execute(ReloadParams::builder().ignore_cache(true).build())
@@ -307,19 +332,19 @@ async fn unblock(
         .await?;
 
         if !blocked {
-            return Ok(());
+            return Ok(browser);
         }
 
         if try_solve_captcha(page, verboser).await? {
             verboser.warn("Captcha resuelto automaticamente");
-            return Ok(());
+            return Ok(browser);
         }
     }
 
     // Plan C: resolucion manual (solo si hay navegador visible).
-    if !config.headless {
+    if !config.empresite.headless {
         wait_manual(page, verboser).await?;
-        return Ok(());
+        return Ok(browser);
     }
 
     Err(anyhow::anyhow!(
@@ -487,13 +512,13 @@ const MAX_DETAIL_ATTEMPTS: usize = 3;
 /// pestana y se vuelve a abrir la misma URL sin pasar a la siguiente ficha,
 /// hasta un maximo de intentos.
 async fn scrape_detail(
-    browser: &Browser,
+    mut browser: Browser,
     link: &str,
-    config: &EmpresiteConfig,
+    config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
     count: usize,
-) -> Result<DetailOutcome> {
+) -> Result<(Browser, DetailOutcome)> {
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
         let detail_page = browser.new_page(link).await?;
         // dismiss_dialogs(&detail_page).await;
@@ -516,12 +541,8 @@ async fn scrape_detail(
         )
         .await;
 
-        // Hay captcha: pasa por el workflow de desbloqueo antes de extraer.
         if matches!(state, Ok(true)) {
-            if let Err(err) = unblock(&detail_page, config, vpn, verboser).await {
-                let _ = detail_page.close().await?;
-                return Err(err);
-            }
+            browser = unblock(browser, &detail_page, config, vpn, verboser).await?;
 
             // Tras resolver el bloqueo, espera de nuevo a que cargue la ficha.
             let _ = wait_until(
@@ -537,7 +558,7 @@ async fn scrape_detail(
             let _ = detail_page.close().await;
 
             if raw.name.is_empty() {
-                return Ok(DetailOutcome::Skipped);
+                return Ok((browser, DetailOutcome::Skipped));
             }
 
             let email = clean_email(&raw.email);
@@ -546,13 +567,16 @@ async fn scrape_detail(
 
             verboser.processed_coincidence(&raw.name, count);
 
-            return Ok(DetailOutcome::Found(Coincidence {
-                name: raw.name,
-                email,
-                web,
-                tfno,
-                source_url: clean_empresite_url(link),
-            }));
+            return Ok((
+                browser,
+                DetailOutcome::Found(Coincidence {
+                    name: raw.name,
+                    email,
+                    web,
+                    tfno,
+                    source_url: clean_empresite_url(link),
+                }),
+            ));
         }
 
         // No es un detalle real: cerrar la pestana y reabrir la misma URL.
@@ -567,7 +591,11 @@ async fn scrape_detail(
                 "Ficha {} no cargo correctamente (intento {}); reabriendo",
                 link, attempt
             ));
-            tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+            tokio::time::sleep(random_delay(
+                config.empresite.delay_min,
+                config.empresite.delay_max,
+            ))
+            .await;
         }
     }
 
@@ -581,15 +609,14 @@ async fn scrape_detail(
 /// Scrapea una pagina del listado de Empresite: extrae los enlaces a las fichas
 /// y, para cada una, abre su detalle y registra los datos de contacto.
 pub async fn scrape(
-    browser: &Browser,
     params: &EmpresiteParams,
-    config: &EmpresiteConfig,
+    config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
     verboser.searching_coincidences();
 
-    let activity = activity_slug(&config.search_query);
+    let activity = activity_slug(&config.empresite.search_query);
     let url = if params.page <= 1 {
         format!("https://empresite.eleconomista.es/Actividad/{activity}/")
     } else {
@@ -599,8 +626,9 @@ pub async fn scrape(
         )
     };
 
+    let mut browser = Browser::empresite(config).await?;
     let page = browser.new_page(&url).await?;
-    // dismiss_dialogs(&page).await;
+
     let _ = page.wait_for_navigation().await;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -613,7 +641,7 @@ pub async fn scrape(
 
     // El listado puede venir bloqueado por captcha.
     if has_captcha(&page).await? {
-        unblock(&page, config, vpn, verboser).await?;
+        browser = unblock(browser, &page, &config, vpn, verboser).await?;
     }
 
     let links = extract_company_links(&page).await?;
@@ -627,13 +655,24 @@ pub async fn scrape(
             break;
         }
 
-        tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+        tokio::time::sleep(random_delay(
+            config.empresite.delay_min,
+            config.empresite.delay_max,
+        ))
+        .await;
 
-        match scrape_detail(browser, &link, config, vpn, verboser, idx + 1).await {
-            Ok(DetailOutcome::Found(coincidence)) => coincidences.push(coincidence),
-            Ok(DetailOutcome::Skipped) => {}
-            Err(err) => verboser.warn(&format!("Error extrayendo ficha {}: {}", link, err)),
+        //let (new_browser, detail) =
+        let (new_browser, detail) =
+            scrape_detail(browser, &link, &config, vpn, verboser, idx + 1).await?;
+        browser = new_browser;
+        if let DetailOutcome::Found(coincidence) = detail {
+            coincidences.push(coincidence);
         }
+        // match detail {
+        //     Ok(browser, DetailOutcome::Found(coincidence)) => coincidences.push(coincidence),
+        //     Ok(DetailOutcome::Skipped) => {}
+        //     Err(err) => verboser.warn(&format!("Error extrayendo ficha {}: {}", link, err)),
+        // }
     }
 
     // Si una ficha quedo bloqueada, reintentar la pagina entera mas tarde.

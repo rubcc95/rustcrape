@@ -1,5 +1,5 @@
 use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, GoogleMapsConfig};
+use crate::types::{Coincidence, DbConfig, GMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::{MySqlPool, Row};
@@ -53,7 +53,7 @@ pub struct MysqlPersistence {
 impl MysqlPersistence {
     pub async fn new(
         config: &DbConfig,
-        params: &mut GoogleMapsConfig,
+        params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         let (host, port, user, password, database) = match config {
@@ -187,7 +187,7 @@ impl MysqlPersistence {
 
     async fn create_tables(
         &self,
-        params: &GoogleMapsConfig,
+        params: &GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.creating_tables();
@@ -270,7 +270,7 @@ impl MysqlPersistence {
 
     async fn ensure_tables(
         &self,
-        params: &mut GoogleMapsConfig,
+        params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.verifying_db();

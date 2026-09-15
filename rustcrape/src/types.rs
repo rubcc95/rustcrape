@@ -44,7 +44,7 @@ pub enum ExecutionMode {
 /// y los ajustes comunes a toda la ejecucion.
 #[derive(Debug, Clone, Serialize)]
 pub struct Config {
-    pub google_maps: GoogleMapsConfig,
+    pub gmaps: GMapsConfig,
     pub empresite: EmpresiteConfig,
     #[serde(default)]
     pub execution_mode: ExecutionMode,
@@ -61,7 +61,7 @@ pub struct Config {
 
 #[derive(Deserialize)]
 struct ConfigRaw {
-    google_maps: GoogleMapsConfig,
+    google_maps: GMapsConfig,
     empresite: EmpresiteConfig,
     #[serde(default)]
     execution_mode: ExecutionMode,
@@ -79,7 +79,7 @@ struct ConfigRaw {
 impl From<ConfigRaw> for Config {
     fn from(raw: ConfigRaw) -> Self {
         Config {
-            google_maps: raw.google_maps,
+            gmaps: raw.google_maps,
             empresite: raw.empresite,
             execution_mode: raw.execution_mode,
             db: raw.db,
@@ -130,7 +130,7 @@ impl From<LegacyConfig> for Config {
         let search = legacy.search;
         let search_query = search.persistent.search_query;
         Config {
-            google_maps: GoogleMapsConfig {
+            gmaps: GMapsConfig {
                 enabled: true,
                 search_query: search_query.clone(),
                 zoom: search.persistent.zoom,
@@ -179,7 +179,7 @@ impl<'de> Deserialize<'de> for Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GoogleMapsConfig {
+pub struct GMapsConfig {
     pub enabled: bool,
     pub search_query: String,
     pub zoom: u32,

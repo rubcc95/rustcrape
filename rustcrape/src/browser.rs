@@ -6,6 +6,8 @@ use chromiumoxide::{Browser as COxideBrowser, BrowserConfig};
 use futures::StreamExt;
 use rand::Rng;
 
+use crate::types::Config;
+
 const USER_AGENTS: &[&str] = &[
     // Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -133,7 +135,7 @@ pub struct Browser {
 }
 
 impl Browser {
-    pub async fn launch(
+    pub async fn new(
         headless: bool,
         browser_path: Option<&Path>,
         profile_dir: Option<&Path>,
@@ -202,6 +204,29 @@ impl Browser {
         Ok(Self { browser })
     }
 
+    pub async fn empresite(config: &Config) -> Result<Self> {
+        Self::launch(config, "empresite").await
+    }
+
+    pub async fn gmaps(config: &Config) -> Result<Self> {
+        Self::launch(config, "gmaps").await
+    }
+
+    async fn launch(config: &Config, name: impl AsRef<Path>) -> Result<Self> {
+        Ok(Self::new(
+            config.gmaps.headless,
+            config.browser_path.as_deref().map(std::path::Path::new),
+            Some(
+                &match config.browser_profile_dir.as_deref() {
+                    Some(dir) => Path::new(dir).join("rustcrape-profiles"),
+                    None => std::env::temp_dir().join("rustcrape-profiles"),
+                }
+                .join(name),
+            ),
+        )
+        .await?)
+    }
+
     pub async fn close(mut self) -> Result<()> {
         self.browser.close().await?;
         self.browser.wait().await?;
@@ -220,98 +245,94 @@ impl std::ops::Deref for Browser {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
-    use crate::google_maps::{GoogleMapsParams, GoogleMapsScraper};
-    use crate::scraper::Scraper;
-    use crate::types::GoogleMapsConfig;
-    use crate::verboser::DebugVerboser;
+    use crate::types::GMapsConfig;
 
-    fn test_config() -> GoogleMapsConfig {
-        GoogleMapsConfig {
-            enabled: true,
-            search_query: "Tintoreria".to_string(),
-            zoom: 12,
-            stop_threshold: 5,
-            delay_min: 100,
-            delay_max: 1400,
-            headless: false,
-            rate_limit: None,
-            iterations: None,
-        }
-    }
+    // fn test_config() -> GMapsConfig {
+    //     GMapsConfig {
+    //         enabled: true,
+    //         search_query: "Tintoreria".to_string(),
+    //         zoom: 12,
+    //         stop_threshold: 5,
+    //         delay_min: 100,
+    //         delay_max: 1400,
+    //         headless: false,
+    //         rate_limit: None,
+    //         iterations: None,
+    //     }
+    // }
 
-    #[tokio::test]
-    #[ignore]
-    async fn test_buscar_with_browser_instance() {
-        let instance = Browser::launch(true, None, None).await.unwrap();
-        let scraper = GoogleMapsScraper::new(test_config());
-        let result = scraper
-            .scrape(
-                &instance,
-                &GoogleMapsParams {
-                    lat: 27.1248,
-                    lng: -15.4300,
-                },
-                &DebugVerboser,
-            )
-            .await
-            .unwrap();
-        println!("Gran Canaria: {} coincidences", result.coincidences.len());
-        for (idx, res) in result.coincidences.into_iter().enumerate() {
-            println!("Result {}: {:?}", idx + 1, res);
-        }
-        instance.close().await.unwrap();
-    }
+    // #[tokio::test]
+    // #[ignore]
+    // async fn test_buscar_with_browser_instance() {
+    //     //let instance = Browser::launch(true, None, None).await.unwrap();
+    //     let scraper = GoogleMapsScraper::new(test_config());
+    //     let result = scraper
+    //         .scrape(
+    //             //&instance,
+    //             GoogleMapsParams {
+    //                 lat: 27.1248,
+    //                 lng: -15.4300,
+    //             },
+    //             &DebugVerboser,
+    //         )
+    //         .await
+    //         .unwrap();
+    //     println!("Gran Canaria: {} coincidences", result.coincidences.len());
+    //     for (idx, res) in result.coincidences.into_iter().enumerate() {
+    //         println!("Result {}: {:?}", idx + 1, res);
+    //     }
+    //     //instance.close().await.unwrap();
+    // }
 
-    #[tokio::test]
-    #[ignore]
-    async fn search_multi() {
-        let instance = Browser::launch(true, None, None).await.unwrap();
+    // #[tokio::test]
+    // #[ignore]
+    // async fn search_multi() {
+    //     //let instance = Browser::launch(true, None, None).await.unwrap();
 
-        let scraper = GoogleMapsScraper::new(test_config());
-        let result = scraper
-            .scrape(
-                &instance,
-                &GoogleMapsParams {
-                    lat: 27.8248,
-                    lng: -15.4300,
-                },
-                &DebugVerboser,
-            )
-            .await
-            .unwrap();
-        println!("Gran Canaria: {} coincidences", result.coincidences.len());
-        for (idx, coincidence) in result.coincidences.into_iter().enumerate() {
-            println!("Result {}: {:?}", idx + 1, coincidence);
-        }
+    //     let scraper = GoogleMapsScraper::new(test_config());
+    //     let result = scraper
+    //         .scrape(
+    //             //&instance,
+    //             &GoogleMapsParams {
+    //                 lat: 27.8248,
+    //                 lng: -15.4300,
+    //             },
+    //             &DebugVerboser,
+    //         )
+    //         .await
+    //         .unwrap();
+    //     println!("Gran Canaria: {} coincidences", result.coincidences.len());
+    //     for (idx, coincidence) in result.coincidences.into_iter().enumerate() {
+    //         println!("Result {}: {:?}", idx + 1, coincidence);
+    //     }
 
-        instance.close().await.unwrap();
-    }
+    //     //instance.close().await.unwrap();
+    // }
 
-    #[tokio::test]
-    #[ignore]
-    async fn search_single() {
-        let instance = Browser::launch(true, None, None).await.unwrap();
-        let mut config = test_config();
-        config.search_query = "Parque de Ferrera".to_string();
-        let scraper = GoogleMapsScraper::new(config);
-        let result = scraper
-            .scrape(
-                &instance,
-                &GoogleMapsParams {
-                    lat: 43.5528489,
-                    lng: -5.9226716,
-                },
-                &DebugVerboser,
-            )
-            .await
-            .unwrap();
-        println!("El Hierro: {} coincidences", result.coincidences.len());
-        // The assertion is soft — may be 0 or 1, both are valid outcomes.
-        if result.coincidences.is_empty() {
-            println!("No coincidences found in El Hierro (expected: may be 0 or 1)");
-        }
+    // #[tokio::test]
+    // #[ignore]
+    // async fn search_single() {
+    //     //let instance = Browser::launch(true, None, None).await.unwrap();
+    //     let mut config = test_config();
+    //     config.search_query = "Parque de Ferrera".to_string();
+    //     let scraper = GoogleMapsScraper::new(config);
+    //     let result = scraper
+    //         .scrape(
+    //             //&instance,
+    //             &GoogleMapsParams {
+    //                 lat: 43.5528489,
+    //                 lng: -5.9226716,
+    //             },
+    //             &DebugVerboser,
+    //         )
+    //         .await
+    //         .unwrap();
+    //     println!("El Hierro: {} coincidences", result.coincidences.len());
+    //     // The assertion is soft — may be 0 or 1, both are valid outcomes.
+    //     if result.coincidences.is_empty() {
+    //         println!("No coincidences found in El Hierro (expected: may be 0 or 1)");
+    //     }
 
-        instance.close().await.unwrap();
-    }
+    //     //instance.close().await.unwrap();
+    // }
 }

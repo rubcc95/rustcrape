@@ -8,53 +8,69 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::browser::Browser;
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
-use crate::types::EmpresiteConfig;
+use crate::types::Config;
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
 
 pub struct EmpresiteScraper {
-    config: EmpresiteConfig,
+    //config: EmpresiteConfig,
     vpn: Arc<VpnRotator>,
+    //profile_dir: Option<PathBuf>,
+    //browser_path: Option<PathBuf>,
 }
 
 impl EmpresiteScraper {
-    pub fn new(config: EmpresiteConfig, vpn: Arc<VpnRotator>) -> Self {
-        Self { config, vpn }
+    pub fn new(
+        //config: EmpresiteConfig,
+        vpn: Arc<VpnRotator>,
+        // profile_dir: Option<PathBuf>,
+        // browser_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            //config,
+            vpn,
+            //profile_dir,
+            //browser_path,
+        }
     }
 }
 
 impl Scraper for EmpresiteScraper {
-    type Config = EmpresiteConfig;
+    // type Config = EmpresiteConfig;
     type Params = EmpresiteParams;
 
     fn name(&self) -> &'static str {
         "empresite"
     }
 
-    fn config(&self) -> &Self::Config {
-        &self.config
+    // // fn config(&self) -> &Self::Config {
+    // //     &self.config
+    // // }
+
+    // fn headless(&self) -> bool {
+    //     self.config.headless
+    // }
+
+    fn rate_limit(&self, config: &Config) -> Option<NonZeroU32> {
+        config.empresite.rate_limit
     }
 
-    fn headless(&self) -> bool {
-        self.config.headless
-    }
-
-    fn rate_limit(&self) -> Option<NonZeroU32> {
-        self.config.rate_limit
-    }
-
-    fn iterations(&self) -> Option<NonZeroU32> {
-        self.config.iterations
+    fn iterations(&self, config: &Config) -> Option<NonZeroU32> {
+        config.empresite.iterations
     }
 
     fn describe(&self, params: &Self::Params) -> String {
         format!("página {}", params.page)
     }
 
-    async fn seed<P: Persistence>(&self, persist: &P, _verboser: &dyn Verboser) -> Result<()> {
+    async fn seed<P: Persistence>(
+        &self,
+        _: &Config,
+        persist: &P,
+        _verboser: &dyn Verboser,
+    ) -> Result<()> {
         if !persist.has_empresite_pages().await? {
             persist.insert_empresite_page(1).await?;
         }
@@ -62,10 +78,17 @@ impl Scraper for EmpresiteScraper {
     }
 
     async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
-        Ok(persist
-            .claim_empresite_page()
-            .await?
-            .map(|(id, page)| (id, EmpresiteParams { page })))
+        Ok(persist.claim_empresite_page().await?.map(|(id, page)| {
+            (
+                id,
+                EmpresiteParams {
+                    page,
+                    // headless: self.config.headless,
+                    // browser_path: self.browser_path.as_deref(),
+                    // profile_dir: self.profile_dir.as_deref(),
+                },
+            )
+        }))
     }
 
     async fn release<P: Persistence>(
@@ -93,10 +116,11 @@ impl Scraper for EmpresiteScraper {
 
     async fn scrape(
         &self,
-        browser: &Browser,
+        //browser: &Browser,
+        config: &Config,
         params: &Self::Params,
         verboser: &dyn Verboser,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(browser, params, &self.config, &self.vpn, verboser).await
+        scrape::scrape(params, config, &self.vpn, verboser).await
     }
 }

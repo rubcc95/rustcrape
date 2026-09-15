@@ -1,6 +1,7 @@
-use crate::google_maps::config::GoogleMapsParams;
+use crate::browser::Browser;
+use crate::google_maps::config::GMapsParams;
 use crate::scraper::ScrapeResult;
-use crate::types::{Coincidence, GoogleMapsConfig};
+use crate::types::{Coincidence, Config, GMapsConfig};
 use crate::utils::*;
 use crate::verboser::Verboser;
 
@@ -9,8 +10,9 @@ use chromiumoxide::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType,
 };
 use chromiumoxide::error::CdpError;
-use chromiumoxide::{Browser, Element, Page};
+use chromiumoxide::{Element, Page};
 use futures::future::{BoxFuture, select_ok};
+use std::path::Path;
 use std::time::Duration;
 
 fn clean_maps_url(url: &str) -> String {
@@ -223,8 +225,8 @@ async fn extract_current_result(
 
 async fn scrape_single(
     page: &Page,
-    params: &GoogleMapsParams,
-    config: &GoogleMapsConfig,
+    params: &GMapsParams,
+    config: &GMapsConfig,
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
     let _ = params;
@@ -315,15 +317,19 @@ fn extract_coords_from_href(href: &str) -> (f32, f32) {
         })
     };
 
-    let lat = parse_after("!3d").or_else(|| parse_after("&3d")).unwrap_or(0.0);
-    let lng = parse_after("!4d").or_else(|| parse_after("&4d")).unwrap_or(0.0);
+    let lat = parse_after("!3d")
+        .or_else(|| parse_after("&3d"))
+        .unwrap_or(0.0);
+    let lng = parse_after("!4d")
+        .or_else(|| parse_after("&4d"))
+        .unwrap_or(0.0);
     (lat, lng)
 }
 
 async fn scrape_feed(
     page: &Page,
-    params: &GoogleMapsParams,
-    config: &GoogleMapsConfig,
+    params: &GMapsParams,
+    config: &GMapsConfig,
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
     verboser.found_multiple_coincidences();
@@ -448,25 +454,28 @@ async fn scrape_feed(
 }
 
 pub async fn scrape(
-    instance: &Browser,
-    params: &GoogleMapsParams,
-    config: &GoogleMapsConfig,
+    params: &GMapsParams,
+    config: &Config,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
-    verboser.accepting_cookies();
+    verboser.opening_browser("");
+    let instance = Browser::gmaps(config).await?;
     let url = format!(
         "https://www.google.com/maps/search/{}/@{},{},{}z",
-        config.search_query, params.lat, params.lng, config.zoom
+        config.gmaps.search_query, params.lat, params.lng, config.gmaps.zoom
     );
     let page = instance.new_page(&url).await?;
     page.wait_for_navigation().await?;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
+    if verboser.is_cancelled() {
+        return Ok(ScrapeResult::empty(false));
+    }
+
     verboser.accepting_cookies();
     let _ = accept_cookies(&page).await;
 
     verboser.searching_coincidences();
-
     if verboser.is_cancelled() {
         return Ok(ScrapeResult::empty(false));
     }
@@ -529,8 +538,8 @@ pub async fn scrape(
     .await?;
 
     let coincidences = match mode {
-        Mode::Feed => scrape_feed(&page, params, config, verboser).await?,
-        Mode::Single => scrape_single(&page, params, config, verboser).await?,
+        Mode::Feed => scrape_feed(&page, params, &config.gmaps, verboser).await?,
+        Mode::Single => scrape_single(&page, params, &config.gmaps, verboser).await?,
     };
 
     Ok(ScrapeResult::new(coincidences, false))
@@ -544,99 +553,185 @@ mod tests {
     fn test_extract_coords_from_href_con_coordenadas_negativas_y_positivas() {
         // Espana peninsular: lat positiva, lng negativa
         let (lat, lng) = extract_coords_from_href(
-            "https://www.google.com/maps/place/Tintorer%C3%ADa+Centro/@40.4168,-3.7038,17z/data=!3m1!4b1"
+            "https://www.google.com/maps/place/Tintorer%C3%ADa+Centro/@40.4168,-3.7038,17z/data=!3m1!4b1",
         );
-        assert!((lat - 40.4168).abs() < 0.001, "lat esperada 40.4168, got {}", lat);
-        assert!((lng - -3.7038).abs() < 0.001, "lng esperada -3.7038, got {}", lng);
+        assert!(
+            (lat - 40.4168).abs() < 0.001,
+            "lat esperada 40.4168, got {}",
+            lat
+        );
+        assert!(
+            (lng - -3.7038).abs() < 0.001,
+            "lng esperada -3.7038, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_desde_at_con_zoom_y_data() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Dry+Cleaners/@-34.6037,-58.3816,15z/data=!4m6!3m5!1s0x95bcc9:0x12345"
+            "/maps/place/Dry+Cleaners/@-34.6037,-58.3816,15z/data=!4m6!3m5!1s0x95bcc9:0x12345",
         );
-        assert!((lat - -34.6037).abs() < 0.001, "lat esperada -34.6037, got {}", lat);
-        assert!((lng - -58.3816).abs() < 0.001, "lng esperada -58.3816, got {}", lng);
+        assert!(
+            (lat - -34.6037).abs() < 0.001,
+            "lat esperada -34.6037, got {}",
+            lat
+        );
+        assert!(
+            (lng - -58.3816).abs() < 0.001,
+            "lng esperada -58.3816, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_sin_data_solo_at() {
         let (lat, lng) = extract_coords_from_href(
-            "https://www.google.com/maps/place/Tintorer%C3%ADa+Nombre/@41.3879,2.1699,17z"
+            "https://www.google.com/maps/place/Tintorer%C3%ADa+Nombre/@41.3879,2.1699,17z",
         );
-        assert!((lat - 41.3879).abs() < 0.001, "lat esperada 41.3879, got {}", lat);
-        assert!((lng - 2.1699).abs() < 0.001, "lng esperada 2.1699, got {}", lng);
+        assert!(
+            (lat - 41.3879).abs() < 0.001,
+            "lat esperada 41.3879, got {}",
+            lat
+        );
+        assert!(
+            (lng - 2.1699).abs() < 0.001,
+            "lng esperada 2.1699, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_sin_arroba_fallback_a_3d_4d() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Tintorer%C3%ADa+Premium/data=!4m7!3m6!1s0xdead:0xbeef!8m2!3d41.3800!4d2.1700"
+            "/maps/place/Tintorer%C3%ADa+Premium/data=!4m7!3m6!1s0xdead:0xbeef!8m2!3d41.3800!4d2.1700",
         );
-        assert!((lat - 41.3800).abs() < 0.001, "lat esperada 41.3800, got {}", lat);
-        assert!((lng - 2.1700).abs() < 0.001, "lng esperada 2.1700, got {}", lng);
+        assert!(
+            (lat - 41.3800).abs() < 0.001,
+            "lat esperada 41.3800, got {}",
+            lat
+        );
+        assert!(
+            (lng - 2.1700).abs() < 0.001,
+            "lng esperada 2.1700, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_fallback_3d_con_longitud_negativa() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Negocio/data=!3m1!4b1!4m6!3m5!1s0xdead:0xbeef!8m2!3d40.4168!4d-3.7038"
+            "/maps/place/Negocio/data=!3m1!4b1!4m6!3m5!1s0xdead:0xbeef!8m2!3d40.4168!4d-3.7038",
         );
-        assert!((lat - 40.4168).abs() < 0.001, "lat esperada 40.4168, got {}", lat);
-        assert!((lng - -3.7038).abs() < 0.001, "lng esperada -3.7038, got {}", lng);
+        assert!(
+            (lat - 40.4168).abs() < 0.001,
+            "lat esperada 40.4168, got {}",
+            lat
+        );
+        assert!(
+            (lng - -3.7038).abs() < 0.001,
+            "lng esperada -3.7038, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_fallback_3d_con_longitud_positiva() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Negocio/data=!4m7!3m6!1s0xdead:0xbeef!8m2!3d41.3800!4d2.1700"
+            "/maps/place/Negocio/data=!4m7!3m6!1s0xdead:0xbeef!8m2!3d41.3800!4d2.1700",
         );
-        assert!((lat - 41.3800).abs() < 0.001, "lat esperada 41.3800, got {}", lat);
-        assert!((lng - 2.1700).abs() < 0.001, "lng esperada 2.1700, got {}", lng);
+        assert!(
+            (lat - 41.3800).abs() < 0.001,
+            "lat esperada 41.3800, got {}",
+            lat
+        );
+        assert!(
+            (lng - 2.1700).abs() < 0.001,
+            "lng esperada 2.1700, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_fallback_3d_con_coordenadas_negativas() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Negocio/data=!4m6!3m5!1s0xdead:0xbeef!8m2!3d-34.6037!4d-58.3816"
+            "/maps/place/Negocio/data=!4m6!3m5!1s0xdead:0xbeef!8m2!3d-34.6037!4d-58.3816",
         );
-        assert!((lat - -34.6037).abs() < 0.001, "lat esperada -34.6037, got {}", lat);
-        assert!((lng - -58.3816).abs() < 0.001, "lng esperada -58.3816, got {}", lng);
+        assert!(
+            (lat - -34.6037).abs() < 0.001,
+            "lat esperada -34.6037, got {}",
+            lat
+        );
+        assert!(
+            (lng - -58.3816).abs() < 0.001,
+            "lng esperada -58.3816, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_sin_coordenadas_devuelve_cero() {
-        let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Tintorer%C3%ADa+Sin+Coords"
+        let (lat, lng) = extract_coords_from_href("/maps/place/Tintorer%C3%ADa+Sin+Coords");
+        assert!(
+            (lat - 0.0).abs() < f32::EPSILON,
+            "lat esperada 0.0, got {}",
+            lat
         );
-        assert!((lat - 0.0).abs() < f32::EPSILON, "lat esperada 0.0, got {}", lat);
-        assert!((lng - 0.0).abs() < f32::EPSILON, "lng esperada 0.0, got {}", lng);
+        assert!(
+            (lng - 0.0).abs() < f32::EPSILON,
+            "lng esperada 0.0, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_con_ampersand_3d() {
         let (lat, lng) = extract_coords_from_href(
-            "https://www.google.com/maps/place/Negocio/@40.4168,-3.7038,17z?&3d40.4168&4d-3.7038"
+            "https://www.google.com/maps/place/Negocio/@40.4168,-3.7038,17z?&3d40.4168&4d-3.7038",
         );
-        assert!((lat - 40.4168).abs() < 0.001, "lat esperada 40.4168, got {}", lat);
-        assert!((lng - -3.7038).abs() < 0.001, "lng esperada -3.7038, got {}", lng);
+        assert!(
+            (lat - 40.4168).abs() < 0.001,
+            "lat esperada 40.4168, got {}",
+            lat
+        );
+        assert!(
+            (lng - -3.7038).abs() < 0.001,
+            "lng esperada -3.7038, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_href_relativo() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Tintorer%C3%ADa+Limpieza+Express/@40.4168,-3.7038,17z/data=!3m1!4b1"
+            "/maps/place/Tintorer%C3%ADa+Limpieza+Express/@40.4168,-3.7038,17z/data=!3m1!4b1",
         );
-        assert!((lat - 40.4168).abs() < 0.001, "lat esperada 40.4168, got {}", lat);
-        assert!((lng - -3.7038).abs() < 0.001, "lng esperada -3.7038, got {}", lng);
+        assert!(
+            (lat - 40.4168).abs() < 0.001,
+            "lat esperada 40.4168, got {}",
+            lat
+        );
+        assert!(
+            (lng - -3.7038).abs() < 0.001,
+            "lng esperada -3.7038, got {}",
+            lng
+        );
     }
 
     #[test]
     fn test_extract_coords_canarias() {
         let (lat, lng) = extract_coords_from_href(
-            "/maps/place/Tinte+Canarias/@28.1234,-15.4567,14z/data=!3m1!4b1"
+            "/maps/place/Tinte+Canarias/@28.1234,-15.4567,14z/data=!3m1!4b1",
         );
-        assert!((lat - 28.1234).abs() < 0.001, "lat esperada 28.1234, got {}", lat);
-        assert!((lng - -15.4567).abs() < 0.001, "lng esperada -15.4567, got {}", lng);
+        assert!(
+            (lat - 28.1234).abs() < 0.001,
+            "lat esperada 28.1234, got {}",
+            lat
+        );
+        assert!(
+            (lng - -15.4567).abs() < 0.001,
+            "lng esperada -15.4567, got {}",
+            lng
+        );
     }
 }

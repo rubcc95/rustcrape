@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(3600);
 
 pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
     let persist = loop {
-        match PersistenceKind::create(&config.db, &mut config.google_maps, &verboser).await {
+        match PersistenceKind::create(&config.db, &mut config.gmaps, &verboser).await {
             Ok(p) => break p,
             Err(err) => verboser.warn(&format!(
                 "Failed to connect to database: {err}. Retrying..."
@@ -29,86 +29,69 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
         config.nordvpn_path.clone(),
         config.ip_rotation_frequency,
     ));
-    let browser_path = config.browser_path.clone();
-    let profile_root = config
-        .browser_profile_dir
-        .clone()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("rustcrape-profiles"));
 
-    let gmaps = config
-        .google_maps
-        .enabled
-        .then(|| GoogleMapsScraper::new(config.google_maps.clone()));
+    let gmaps = config.gmaps.enabled.then(|| {
+        GoogleMapsScraper::new(
+            // config.google_maps.clone(),
+            // config.browser_path.clone().map(PathBuf::from),
+            // Some(
+            //     config
+            //         .browser_profile_dir.clone()
+            //         .map(PathBuf::from)
+            //         .unwrap_or_else(|| std::env::temp_dir().join("rustcrape-profiles"))
+            //         .join("gmaps"),
+            // ),
+        )
+    });
     let empresite = config
         .empresite
         .enabled
-        .then(|| EmpresiteScraper::new(config.empresite.clone(), vpn.clone()));
+        .then(|| EmpresiteScraper::new(vpn.clone()));
 
     match config.execution_mode {
         ExecutionMode::Sequential => {
             if let Some(scraper) = gmaps {
-                run_target(
-                    scraper,
-                    persist.clone(),
-                    verboser.clone(),
-                    vpn.clone(),
-                    browser_path.clone(),
-                    profile_root.clone(),
-                )
-                .await;
+                run_target(scraper, &config, &persist, verboser.clone(), vpn.clone()).await;
             }
             if let Some(scraper) = empresite {
-                run_target(
-                    scraper,
-                    persist.clone(),
-                    verboser.clone(),
-                    vpn.clone(),
-                    browser_path.clone(),
-                    profile_root.clone(),
-                )
-                .await;
+                run_target(scraper, &config, &persist, verboser.clone(), vpn.clone()).await;
             }
         }
         ExecutionMode::Parallel => {
-            let mut handles = Vec::new();
-            if let Some(scraper) = gmaps {
-                let persist = persist.clone();
-                let verboser = verboser.clone();
-                let vpn = vpn.clone();
-                let browser_path = browser_path.clone();
-                let profile_root = profile_root.clone();
-                handles.push(tokio::spawn(async move {
-                    run_target(scraper, persist, verboser, vpn, browser_path, profile_root).await;
-                }));
-            }
-            if let Some(scraper) = empresite {
-                let persist = persist.clone();
-                let verboser = verboser.clone();
-                let vpn = vpn.clone();
-                let browser_path = browser_path.clone();
-                let profile_root = profile_root.clone();
-                handles.push(tokio::spawn(async move {
-                    run_target(scraper, persist, verboser, vpn, browser_path, profile_root).await;
-                }));
-            }
-            for handle in handles {
-                let _ = handle.await;
-            }
+            // let mut handles = Vec::new();
+            // if let Some(scraper) = gmaps {
+            //     let persist = persist.clone();
+            //     let verboser = verboser.clone();
+            //     let vpn = vpn.clone();
+            //     handles.push(tokio::spawn(async move {
+            //         run_target(scraper, persist, verboser, vpn).await;
+            //     }));
+            // }
+            // if let Some(scraper) = empresite {
+            //     let persist = persist.clone();
+            //     let verboser = verboser.clone();
+            //     let vpn = vpn.clone();
+            //     handles.push(tokio::spawn(async move {
+            //         run_target(scraper, persist, verboser, vpn).await;
+            //     }));
+            // }
+            // for handle in handles {
+            //     let _ = handle.await;
+            // }
+            todo!()
         }
     }
 }
 
 async fn run_target<S: Scraper>(
     scraper: S,
-    persist: PersistenceKind,
+    config: &Config,
+    persist: &impl Persistence,
     verboser: Arc<dyn Verboser>,
     vpn: Arc<VpnRotator>,
-    browser_path: Option<String>,
-    profile_root: std::path::PathBuf,
 ) {
-    if let Err(err) = scraper.seed(&persist, &*verboser).await {
-        verboser.error(&format!("Error seeding tasks for {}: {err}", scraper.name()));
+    if let Err(err) = scraper.seed(config, persist, &*verboser).await {
+        verboser.error("Error seeding tasks to scraper");
         return;
     }
 
@@ -121,14 +104,14 @@ async fn run_target<S: Scraper>(
             break;
         }
 
-        if let Some(iterations) = scraper.iterations() {
+        if let Some(iterations) = scraper.iterations(config) {
             if iterations.get() <= iteration {
                 verboser.finished();
                 break;
             }
         }
 
-        if let Some(rate_limit) = scraper.rate_limit() {
+        if let Some(rate_limit) = scraper.rate_limit(config) {
             let now = Instant::now();
             timestamps.retain(|t| now.duration_since(*t) < RATE_LIMIT_WINDOW);
             if timestamps.len() >= rate_limit.get() as usize {
@@ -148,7 +131,7 @@ async fn run_target<S: Scraper>(
 
         verboser.obtaining_task();
 
-        let claimed = match scraper.claim(&persist).await {
+        let claimed = match scraper.claim(persist).await {
             Ok(claimed) => claimed,
             Err(err) => {
                 verboser.error(&format!("Error claiming task: {err}"));
@@ -167,31 +150,31 @@ async fn run_target<S: Scraper>(
 
         if verboser.is_cancelled() {
             verboser.warn("Cancelado antes de abrir el navegador");
-            let _ = scraper.release(&persist, task_id, None).await;
+            let _ = scraper.release(persist, task_id, None).await;
             break;
         }
 
         verboser.opening_browser(&label);
-        let profile_dir = profile_root.join(scraper.name());
-        let browser = match Browser::launch(
-            scraper.headless(),
-            browser_path.as_deref().map(Path::new),
-            Some(&profile_dir),
-        )
-        .await
-        {
-            Ok(browser) => browser,
-            Err(err) => {
-                verboser.error(&format!("Error launching browser: {err}"));
-                let _ = scraper.release(&persist, task_id, None).await;
-                iteration += 1;
-                continue;
-            }
-        };
+        //let profile_dir = profile_root.join(scraper.name());
+        // let browser = match Browser::launch(
+        //     scraper.headless(),
+        //     browser_path.as_deref().map(Path::new),
+        //     Some(&profile_dir),
+        // )
+        // .await
+        // {
+        //     Ok(browser) => browser,
+        //     Err(err) => {
+        //         verboser.error(&format!("Error launching browser: {err}"));
+        //         let _ = scraper.release(&persist, task_id, None).await;
+        //         iteration += 1;
+        //         continue;
+        //     }
+        // };
 
-        let result = scraper.scrape(&browser, &params, &*verboser).await;
+        let result = scraper.scrape(config, &params, &*verboser).await;
         verboser.closing_browser();
-        let _ = browser.close().await;
+        //let _ = browser.close().await;
 
         match result {
             Ok(result) => {
@@ -204,25 +187,25 @@ async fn run_target<S: Scraper>(
                     Ok(written) => written as i32,
                     Err(err) => {
                         verboser.error(&format!("Error writing coincidences: {err}"));
-                        let _ = scraper.release(&persist, task_id, None).await;
+                        let _ = scraper.release(persist, task_id, None).await;
                         iteration += 1;
                         continue;
                     }
                 };
                 verboser.written_coincidences(written);
                 scraper
-                    .release(&persist, task_id, Some((items, items - written)))
+                    .release(persist, task_id, Some((items, items - written)))
                     .await
                     .ok();
                 verboser.released_task();
 
-                if let Err(err) = scraper.advance(&persist, &params, result.has_more).await {
+                if let Err(err) = scraper.advance(persist, &params, result.has_more).await {
                     verboser.error(&format!("Error advancing queue: {err}"));
                 }
             }
             Err(err) => {
                 verboser.error(&format!("Error during scraping: {err}"));
-                let _ = scraper.release(&persist, task_id, None).await;
+                let _ = scraper.release(persist, task_id, None).await;
                 iteration += 1;
                 continue;
             }
@@ -235,12 +218,12 @@ async fn run_target<S: Scraper>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DbConfig, EmpresiteConfig, GoogleMapsConfig};
+    use crate::types::{DbConfig, EmpresiteConfig, GMapsConfig};
     use crate::verboser::DebugVerboser;
 
     fn test_config() -> Config {
         Config {
-            google_maps: GoogleMapsConfig {
+            gmaps: GMapsConfig {
                 enabled: true,
                 search_query: "Tintorería".to_string(),
                 zoom: 12,
@@ -276,4 +259,3 @@ mod tests {
         run_dispatch(config, DebugVerboser).await;
     }
 }
- 

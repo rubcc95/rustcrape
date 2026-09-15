@@ -3,7 +3,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::storage::Persistence;
-use crate::types::{Coincidence, GoogleMapsConfig};
+use crate::types::{Coincidence, GMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -22,7 +22,7 @@ pub struct SqlitePersistence {
 impl SqlitePersistence {
     pub async fn new(
         db_path: &str,
-        params: &mut GoogleMapsConfig,
+        params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         if let Some(parent) = Path::new(db_path).parent() {
@@ -50,7 +50,7 @@ impl SqlitePersistence {
 
     async fn create_tables(
         &self,
-        params: &mut GoogleMapsConfig,
+        params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.creating_tables();

@@ -2,9 +2,8 @@ use std::num::NonZeroU32;
 
 use anyhow::Result;
 
-use crate::browser::Browser;
 use crate::storage::Persistence;
-use crate::types::Coincidence;
+use crate::types::{Coincidence, Config};
 use crate::verboser::Verboser;
 
 /// Resultado de scrapear una tarea. `has_more` indica si existe una tarea
@@ -30,6 +29,10 @@ impl ScrapeResult {
     }
 }
 
+pub struct ScrapingParams<T> {
+    pub specialized: T,
+    pub headless: bool,
+}
 /// Un scraper concreto (Google Maps, Empresite, ...).
 ///
 /// Cada target define sus propios parametros (`Params`) y su propia cola de
@@ -37,23 +40,28 @@ impl ScrapeResult {
 /// iterar sobre trabajos sin conocer como se navega la web.
 #[allow(async_fn_in_trait)]
 pub trait Scraper: Send + Sync {
-    /// Configuracion especifica del target.
-    type Config: Clone + Send + Sync;
+    // /// Configuracion especifica del target.
+    // type Config: Clone + Send + Sync;
     /// Parametros de una tarea concreta.
     type Params: Send;
 
-    /// Identificador del target; se usa como columna `source` en la base de datos.
+    /// Identificador del target; se usa como columna `source` en la base de datos.    
     fn name(&self) -> &'static str;
-    fn config(&self) -> &Self::Config;
-    fn headless(&self) -> bool;
-    fn rate_limit(&self) -> Option<NonZeroU32>;
-    fn iterations(&self) -> Option<NonZeroU32>;
+    // //fn config(&self) -> &Self::Config;
+    // fn headless(&self) -> bool;
+    fn rate_limit(&self, config: &Config) -> Option<NonZeroU32>;
+    fn iterations(&self, config: &Config) -> Option<NonZeroU32>;
 
     /// Descripcion legible de una tarea, para los mensajes de progreso.
     fn describe(&self, params: &Self::Params) -> String;
 
     /// Siembra la cola de trabajo del target (idempotente).
-    async fn seed<P: Persistence>(&self, persist: &P, verboser: &dyn Verboser) -> Result<()>;
+    async fn seed<P: Persistence>(
+        &self,
+        config: &Config,
+        persist: &P,
+        verboser: &dyn Verboser,
+    ) -> Result<()>;
 
     /// Obtiene y reclama la siguiente tarea pendiente, o `None` si no quedan.
     async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>>;
@@ -77,7 +85,8 @@ pub trait Scraper: Send + Sync {
     /// Ejecuta el scraping de una tarea.
     async fn scrape(
         &self,
-        browser: &Browser,
+        //browser: &Browser,
+        config: &Config,
         params: &Self::Params,
         verboser: &dyn Verboser,
     ) -> Result<ScrapeResult>;

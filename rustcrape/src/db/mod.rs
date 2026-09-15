@@ -2,7 +2,7 @@ pub mod mysql;
 pub mod sqlite;
 
 use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, GoogleMapsConfig};
+use crate::types::{Coincidence, DbConfig, GMapsConfig};
 use crate::verboser::Verboser;
 use anyhow::Result;
 
@@ -15,7 +15,7 @@ pub enum PersistenceKind {
 impl PersistenceKind {
     pub async fn create(
         config: &DbConfig,
-        params: &mut GoogleMapsConfig,
+        params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
         match config {
