@@ -318,28 +318,42 @@ async fn unblock(
 
         // Espera a que la pagina recargada termine de cargar y deje de mostrar
         // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
-        let blocked = wait_until(
-            || async {
-                if has_captcha(&page).await? {
-                    return Ok(Some(true));
-                }
-                if is_detail_loaded(&page).await? {
-                    return Ok(Some(false));
-                }
-                Ok(None)
-            },
-            Duration::from_millis(300),
-            Duration::from_secs(15),
-        )
-        .await?;
 
-        if blocked {
-            return Ok((browser, page));
-        }
+        loop {
+            let blocked = wait_until(
+                || async {
+                    if has_captcha(&page).await? {
+                        return Ok(Some(true));
+                    }
+                    if is_detail_loaded(&page).await? {
+                        return Ok(Some(false));
+                    }
+                    Ok(None)
+                },
+                Duration::from_millis(300),
+                Duration::from_secs(10),
+            )
+            .await;
 
-        if try_solve_captcha(&page, verboser).await? {
-            verboser.warn("Captcha resuelto automaticamente");
-            return Ok((browser, page));
+            match blocked {
+                Ok(blocked) => {
+                    if !blocked {
+                        return Ok((browser, page));
+                    }
+
+                    if try_solve_captcha(&page, verboser).await? {
+                        verboser.warn("Captcha resuelto automaticamente");
+                        return Ok((browser, page));
+                    }
+                }
+                Err(err) => {
+                    if err.is::<WaitUntilTimeoutError>() {
+                        page.reload().await?;
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
         }
     }
 

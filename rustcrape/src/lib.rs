@@ -17,7 +17,6 @@ pub mod prelude {
 }
 
 mod utils {
-
     use anyhow::Result;
     use std::time::Duration;
 
@@ -37,6 +36,12 @@ mod utils {
         let extra = nanos % range;
         Duration::from_millis(min_ms + extra)
     }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("wait_until reached timeout")]
+    pub struct WaitUntilTimeoutError;
+
+    
 
     /// Espera hasta que `f` devuelva `Some`, sondeando cada `interval` hasta `timeout`.
     pub async fn wait_until<F, Fut, T>(mut f: F, interval: Duration, timeout: Duration) -> Result<T>
