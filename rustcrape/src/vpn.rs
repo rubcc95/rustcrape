@@ -236,7 +236,8 @@ impl VpnRotator {
     /// Debe llamarse una vez por tarea procesada (por cualquier target).
     pub async fn tick(&self, verboser: &dyn Verboser) -> Result<bool> {
         if self.force_rotate(verboser).await? {
-            self.counter.lock().unwrap().wrapping_add(1);                        
+            let mut counter = self.counter.lock().unwrap();
+            *counter = counter.wrapping_add(1);                        
             Ok(true)
         } else{
             verboser.vpn_not_available();
