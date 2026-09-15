@@ -11,7 +11,6 @@ use crate::vpn::VpnRotator;
 
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
-use chromiumoxide::cdp::browser_protocol::page::ReloadParams;
 use std::time::Duration;
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
@@ -266,20 +265,21 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
 async fn unblock(
     mut browser: Browser,
-    page: &Page,
+    mut page: Page,
     config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
-) -> Result<Browser> {
-    let mut new_page: Page;
-    let mut page_ref = page;
+) -> Result<(Browser, Page)> {
+    // let mut new_page: Page;
+    // let mut page_ref = page;
+    // let mut page_id = None;
 
     verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
     // Plan A: click automatico.
-    if try_solve_captcha(page, verboser).await? {
+    if try_solve_captcha(&page, verboser).await? {
         verboser.warn("Captcha resuelto automaticamente");
-        return Ok(browser);
+        return Ok((browser, page));
     }
 
     // *** Toma la vieja ip utilizando el browser ***
@@ -309,18 +309,19 @@ async fn unblock(
         browser.close().await?;
         browser = Browser::empresite(config).await?;
         for url in urls {
-            new_page = browser.new_page(url).await?;
-            page_ref = &new_page;
+            page = browser.new_page(url).await?;
+            // page_ref = &new_page;
+            // page_id = Some(new_page.target_id());
         }
 
         // Espera a que la pagina recargada termine de cargar y deje de mostrar
         // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
         let blocked = wait_until(
             || async {
-                if has_captcha(page_ref).await? {
+                if has_captcha(&page).await? {
                     return Ok(Some(true));
                 }
-                if is_detail_loaded(page_ref).await? {
+                if is_detail_loaded(&page).await? {
                     return Ok(Some(false));
                 }
                 Ok(None)
@@ -330,20 +331,20 @@ async fn unblock(
         )
         .await?;
 
-        if !blocked {
-            return Ok(browser);
+        if blocked {
+            return Ok((browser, page));
         }
 
-        if try_solve_captcha(page, verboser).await? {
+        if try_solve_captcha(&page, verboser).await? {
             verboser.warn("Captcha resuelto automaticamente");
-            return Ok(browser);
+            return Ok((browser, page));
         }
     }
 
     // Plan C: resolucion manual (solo si hay navegador visible).
     if !config.empresite.headless {
-        wait_manual(page, verboser).await?;
-        return Ok(browser);
+        wait_manual(&page, verboser).await?;
+        return Ok((browser, page));
     }
 
     Err(anyhow::anyhow!(
@@ -519,7 +520,7 @@ async fn scrape_detail(
     count: usize,
 ) -> Result<(Browser, DetailOutcome)> {
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
-        let detail_page = browser.new_page(link).await?;
+        let mut page = browser.new_page(link).await?;
         // dismiss_dialogs(&detail_page).await;
 
         // Sondea hasta que la ficha este lista (detalle real con datos) o
@@ -527,10 +528,10 @@ async fn scrape_detail(
         // completa.
         let state = wait_until(
             || async {
-                if has_captcha(&detail_page).await? {
+                if has_captcha(&page).await? {
                     return Ok(Some(true));
                 }
-                if is_detail_loaded(&detail_page).await? {
+                if is_detail_loaded(&page).await? {
                     return Ok(Some(false));
                 }
                 Ok(None)
@@ -541,20 +542,20 @@ async fn scrape_detail(
         .await;
 
         if matches!(state, Ok(true)) {
-            browser = unblock(browser, &detail_page, config, vpn, verboser).await?;
+            (browser, page) = unblock(browser, page, config, vpn, verboser).await?;
 
             // Tras resolver el bloqueo, espera de nuevo a que cargue la ficha.
             let _ = wait_until(
-                || detail_state(&detail_page),
+                || detail_state(&page),
                 Duration::from_millis(200),
                 Duration::from_secs(20),
             )
             .await;
         }
 
-        if is_detail_loaded(&detail_page).await.unwrap_or(false) {
-            let raw = extract_detail(&detail_page).await?;
-            let _ = detail_page.close().await;
+        if is_detail_loaded(&page).await.unwrap_or(false) {
+            let raw = extract_detail(&page).await?;
+            let _ = page.close().await;
 
             if raw.name.is_empty() {
                 return Ok((browser, DetailOutcome::Skipped));
@@ -579,7 +580,7 @@ async fn scrape_detail(
         }
 
         // No es un detalle real: cerrar la pestana y reabrir la misma URL.
-        let _ = detail_page.close().await;
+        let _ = page.close().await;
 
         if verboser.is_cancelled() {
             break;
@@ -626,7 +627,7 @@ pub async fn scrape(
     };
 
     let mut browser = Browser::empresite(config).await?;
-    let page = browser.new_page(&url).await?;
+    let mut page = browser.new_page(&url).await?;
 
     let _ = page.wait_for_navigation().await;
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -640,7 +641,7 @@ pub async fn scrape(
 
     // El listado puede venir bloqueado por captcha.
     if has_captcha(&page).await? {
-        browser = unblock(browser, &page, &config, vpn, verboser).await?;
+        (browser, page) = unblock(browser, page, &config, vpn, verboser).await?;
     }
 
     let links = extract_company_links(&page).await?;
