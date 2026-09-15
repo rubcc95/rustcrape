@@ -290,29 +290,31 @@ async fn unblock(
     if vpn.force_rotate_awaited(verboser).await? {
         //let a: Vec<Option<String>> =futures::future::join_all(browser.pages().await?.iter().map(|page| page.url())).await.iter().collect::<Result<Vec<_>>>()?;
 
-        let urls = futures::future::join_all(
-            browser
-                .pages()
-                .await?
-                .into_iter()
-                .map(|page| async move { page.url().await.transpose() }),
-        )
-        .await
-        .into_iter()
-        .flatten()
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        // let urls = futures::future::join_all(
+        //     browser
+        //         .pages()
+        //         .await?
+        //         .into_iter()
+        //         .map(|page| async move { page.url().await.transpose() }),
+        // )
+        // .await
+        // .into_iter()
+        // .flatten()
+        // .collect::<std::result::Result<Vec<_>, _>>()?;
 
         // let a =  browser.pages().await?.into_iter().filter_map(|page| {
         //     page.url().await..await.transpose()
         // });
+        let url = page.url().await?.unwrap();
 
         browser.close().await?;
         browser = Browser::empresite(config).await?;
-        for url in urls {
-            page = browser.new_page(url).await?;
-            // page_ref = &new_page;
-            // page_id = Some(new_page.target_id());
-        }
+        page = browser.new_page(url).await?;
+        // for url in urls {
+        //     page = browser.new_page(url).await?;
+        //     // page_ref = &new_page;
+        //     // page_id = Some(new_page.target_id());
+        // }
 
         // Espera a que la pagina recargada termine de cargar y deje de mostrar
         // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
