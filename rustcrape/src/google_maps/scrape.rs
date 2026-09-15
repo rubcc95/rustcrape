@@ -1,7 +1,9 @@
 use crate::google_maps::config::GoogleMapsParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, GoogleMapsConfig};
+use crate::utils::*;
 use crate::verboser::Verboser;
+
 use anyhow::Result;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType,
@@ -9,42 +11,7 @@ use chromiumoxide::cdp::browser_protocol::input::{
 use chromiumoxide::error::CdpError;
 use chromiumoxide::{Browser, Element, Page};
 use futures::future::{BoxFuture, select_ok};
-use futures::prelude::*;
 use std::time::Duration;
-
-fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
-    if max_ms == 0 {
-        return Duration::ZERO;
-    }
-    let range = max_ms.saturating_sub(min_ms);
-    if range == 0 {
-        return Duration::from_millis(min_ms);
-    }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64;
-    let extra = nanos % range;
-    Duration::from_millis(min_ms + extra)
-}
-
-async fn wait_until<F: Future<Output = Result<Option<T>>>, T>(
-    mut f: impl FnMut() -> F,
-    interval: Duration,
-    timeout: Duration,
-) -> Result<T> {
-    let start = std::time::Instant::now();
-    loop {
-        if let Some(d) = f().await? {
-            return Ok(d);
-        }
-        if start.elapsed() >= timeout {
-            return Err(anyhow::anyhow!("wait_until timed out"));
-        }
-
-        tokio::time::sleep(interval).await;
-    }
-}
 
 fn clean_maps_url(url: &str) -> String {
     let base = url.split('?').next().unwrap_or(url);

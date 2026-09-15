@@ -1,51 +1,17 @@
 use anyhow::Result;
 use serde::Deserialize;
 
-//use crate::browser::dismiss_dialogs;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, EmpresiteConfig};
+use crate::utils::*;
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
+
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
 use chromiumoxide::cdp::browser_protocol::page::ReloadParams;
 use chromiumoxide::{Browser, Page};
 use std::time::Duration;
-
-/// Retardo pseudo-aleatorio entre peticiones, dentro del rango configurado.
-fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
-    if max_ms == 0 {
-        return Duration::ZERO;
-    }
-    let range = max_ms.saturating_sub(min_ms);
-    if range == 0 {
-        return Duration::from_millis(min_ms);
-    }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64;
-    let extra = nanos % range;
-    Duration::from_millis(min_ms + extra)
-}
-
-/// Espera hasta que `f` devuelva `Some`, sondeando cada `interval` hasta `timeout`.
-async fn wait_until<F, Fut, T>(mut f: F, interval: Duration, timeout: Duration) -> Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<Option<T>>>,
-{
-    let start = std::time::Instant::now();
-    loop {
-        if let Some(value) = f().await? {
-            return Ok(value);
-        }
-        if start.elapsed() >= timeout {
-            return Err(anyhow::anyhow!("wait_until agotó el tiempo"));
-        }
-        tokio::time::sleep(interval).await;
-    }
-}
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
 async fn accept_cookies(page: &Page) -> Result<()> {
