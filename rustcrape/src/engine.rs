@@ -1,8 +1,6 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::browser::Browser;
 use crate::db::PersistenceKind;
 use crate::empresite::EmpresiteScraper;
 use crate::google_maps::GoogleMapsScraper;
@@ -91,7 +89,7 @@ async fn run_target<S: Scraper>(
     vpn: Arc<VpnRotator>,
 ) {
     if let Err(err) = scraper.seed(config, persist, &*verboser).await {
-        verboser.error("Error seeding tasks to scraper");
+        verboser.error(&format!("Error seeding tasks to scraper: {err}"));
         return;
     }
 

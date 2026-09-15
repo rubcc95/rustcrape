@@ -6,13 +6,12 @@ pub use config::GMapsParams;
 pub use grid::{Border, SPAIN};
 
 use std::num::NonZeroU32;
-use std::path::PathBuf;
 
 use anyhow::Result;
 
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
-use crate::types::{Config, GMapsConfig};
+use crate::types::Config;
 use crate::verboser::Verboser;
 
 pub struct GoogleMapsScraper {
@@ -22,8 +21,7 @@ pub struct GoogleMapsScraper {
 }
 
 impl GoogleMapsScraper {
-    pub fn new(
-        // config: GoogleMapsConfig,
+    pub fn new(// config: GoogleMapsConfig,
         // profile_dir: Option<PathBuf>,
         // browser_path: Option<PathBuf>,
     ) -> Self {
@@ -62,9 +60,14 @@ impl Scraper for GoogleMapsScraper {
         format!("({}, {})", params.lat, params.lng)
     }
 
-    async fn seed<P: Persistence>(&self, config: &Config, persist: &P, verboser: &dyn Verboser) -> Result<()> {
+    async fn seed<P: Persistence>(
+        &self,
+        config: &Config,
+        persist: &P,
+        verboser: &dyn Verboser,
+    ) -> Result<()> {
         if persist.has_bounds().await? {
-            return Ok(()); 
+            return Ok(());
         }
         let centers = SPAIN
             .generate_grid(config.gmaps.zoom, verboser)
@@ -113,7 +116,6 @@ impl Scraper for GoogleMapsScraper {
         params: &Self::Params,
         verboser: &dyn Verboser,
     ) -> Result<ScrapeResult> {
-        
         scrape::scrape(params, config, verboser).await
     }
 }

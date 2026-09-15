@@ -12,7 +12,6 @@ use chromiumoxide::cdp::browser_protocol::input::{
 use chromiumoxide::error::CdpError;
 use chromiumoxide::{Element, Page};
 use futures::future::{BoxFuture, select_ok};
-use std::path::Path;
 use std::time::Duration;
 
 fn clean_maps_url(url: &str) -> String {

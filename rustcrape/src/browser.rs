@@ -245,7 +245,7 @@ impl std::ops::Deref for Browser {
 #[cfg(test)]
 mod tests {
 
-    use crate::types::GMapsConfig;
+    //use crate::types::GMapsConfig;
 
     // fn test_config() -> GMapsConfig {
     //     GMapsConfig {

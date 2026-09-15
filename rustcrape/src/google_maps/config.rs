@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde::Serialize;
 
 /// Parametros de una tarea de Google Maps: el centro de un bound.

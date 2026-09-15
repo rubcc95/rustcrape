@@ -266,11 +266,14 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
 async fn unblock(
     mut browser: Browser,
-    mut page: &Page,
+    page: &Page,
     config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<Browser> {
+    let mut new_page: Page;
+    let mut page_ref = page;
+
     verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
     // Plan A: click automatico.
@@ -306,22 +309,18 @@ async fn unblock(
         browser.close().await?;
         browser = Browser::empresite(config).await?;
         for url in urls {
-            browser.new_page(url).await?;
+            new_page = browser.new_page(url).await?;
+            page_ref = &new_page;
         }
-
-        // Recarga real, ignorando cache y sin bloquear en wait_for_navigation;
-        // el estado se comprueba en el wait_until de readyState de abajo.
-        page.execute(ReloadParams::builder().ignore_cache(true).build())
-            .await?;
 
         // Espera a que la pagina recargada termine de cargar y deje de mostrar
         // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
         let blocked = wait_until(
             || async {
-                if has_captcha(&page).await? {
+                if has_captcha(page_ref).await? {
                     return Ok(Some(true));
                 }
-                if is_detail_loaded(&page).await? {
+                if is_detail_loaded(page_ref).await? {
                     return Ok(Some(false));
                 }
                 Ok(None)
