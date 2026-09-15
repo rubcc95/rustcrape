@@ -70,6 +70,7 @@ async fn public_ip() -> Result<String> {
 //      .await
 //  }
 
+#[allow(async_fn_in_trait)]
 pub trait VpnHandle {
     async fn disconect(&self) -> Result<bool>;
     async fn connect(&self) -> Result<bool>;

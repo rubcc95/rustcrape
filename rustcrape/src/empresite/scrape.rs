@@ -293,11 +293,11 @@ async fn unblock(
         // el captcha; si la nueva IP no basta, se intenta resolverlo de nuevo.
         let blocked = wait_until(
             || async {
-                if is_detail_loaded(&page).await? {
-                    return Ok(Some(false));
-                }
                 if has_captcha(&page).await? {
                     return Ok(Some(true));
+                }
+                if is_detail_loaded(&page).await? {
+                    return Ok(Some(false));
                 }
                 Ok(None)
             },
@@ -361,29 +361,45 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
     Ok(page.evaluate(js).await?.into_value()?)
 }
 
+/// Comprueba si la pagina es un detalle real de Empresite con sus datos.
+///
+/// No basta con que el encabezado tenga texto: una pagina de error (servidor,
+/// cambio de IP a mitad de conexion, red caida) puede incluir un titulo que se
+/// confundiria con el nombre de la empresa. Se exige ademas que exista la
+/// estructura exclusiva de una ficha: secciones con id fijo (`#infogeneral`,
+/// `#dircont`, etc.), cabeceras tipicas de la plantilla o datos de contacto.
+/// Si hay captcha devuelve `false`; el captcha se detecta aparte.
 async fn is_detail_loaded(page: &Page) -> Result<bool> {
-    Ok(!page
-        .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
-        .await?
-        .into_value::<String>()?
-        .is_empty())
+    let js = r#"(() => {
+        if (location.href.startsWith('chrome-error://')) return false;
+        const name = (document.querySelector('h1')?.textContent || '').trim();
+        if (!name) return false;
+        const seccion = document.querySelector(
+            '#infogeneral, #dircont, #datoscomerciales, #rankings'
+        );
+        const cabecera = [...document.querySelectorAll('h2')].some((e) => {
+            const t = e.textContent.trim();
+            return t.includes('Información general') || t.includes('Dirección y contacto');
+        });
+        const contacto = document.querySelector(
+            'a.email[href^="mailto:"], span.tel span.value, a.url[href]'
+        );
+        return !!(seccion || cabecera || contacto);
+    })()"#;
+    Ok(page.evaluate(js).await?.into_value()?)
 }
-/// Estado de carga de una ficha: `Some(true)` si la pagina esta bloqueada,
-/// `Some(false)` si el h1 ya tiene texto, `None` si aun no esta lista.
+
+/// Estado de carga de una ficha: `Some(true)` si esta bloqueada por captcha,
+/// `Some(false)` si el detalle real ya esta cargado, `None` si aun no esta
+/// lista (ni captcha ni datos confirmados).
 async fn detail_state(page: &Page) -> Result<Option<bool>> {
     if has_captcha(page).await? {
         return Ok(Some(true));
     }
-    let has_name = page
-        .evaluate("document.querySelector('h1')?.textContent?.trim() ?? ''")
-        .await?
-        .into_value::<String>()?
-        .is_empty();
-
-    Ok(match has_name {
-        true => None,
-        false => Some(true),
-    })
+    if is_detail_loaded(page).await? {
+        return Ok(Some(false));
+    }
+    Ok(None)
 }
 
 /// Limpia el email: quita `mailto:` y cualquier query (`?subject=...`).
@@ -461,7 +477,17 @@ enum DetailOutcome {
     Skipped,
 }
 
+/// Maximo de veces que se intenta abrir una misma ficha antes de darla por
+/// inaccesible. No se pasa a la siguiente hasta agotar los intentos.
+const MAX_DETAIL_ATTEMPTS: usize = 3;
+
 /// Scrapea una ficha de empresa abriendo una pestaña nueva.
+///
+/// Primero comprueba el captcha (tiene su propio workflow) y despues si la
+/// pagina es un detalle real de Empresite con sus datos. Si la pagina no carga
+/// correctamente (error del servidor, cambio de IP, timeout), se cierra la
+/// pestana y se vuelve a abrir la misma URL sin pasar a la siguiente ficha,
+/// hasta un maximo de intentos.
 async fn scrape_detail(
     browser: &Browser,
     link: &str,
@@ -470,62 +496,88 @@ async fn scrape_detail(
     verboser: &dyn Verboser,
     count: usize,
 ) -> Result<DetailOutcome> {
-    let detail_page = browser.new_page(link).await?;
-    //dismiss_dialogs(&detail_page).await;
+    for attempt in 1..=MAX_DETAIL_ATTEMPTS {
+        let detail_page = browser.new_page(link).await?;
+        // dismiss_dialogs(&detail_page).await;
 
-    // Sondea hasta que la ficha este lista (h1 disponible) o aparezca un
-    // bloqueo, en vez de esperar a que termine la navegacion completa.
-    let blocked = wait_until(
-        || async {
-            if is_detail_loaded(&detail_page).await? {
-                return Ok(Some(false));
-            }
-            if has_captcha(&detail_page).await? {
-                return Ok(Some(true));
-            }
-            Ok(None)
-        },
-        Duration::from_millis(200),
-        Duration::from_secs(15),
-    )
-    .await
-    .unwrap_or(false);
-
-    if blocked {
-        if let Err(err) = unblock(&detail_page, config, vpn, verboser).await {
-            let _ = detail_page.close().await?;
-            return Err(err);
-        }
-
-        // Tras resolver el bloqueo, espera de nuevo a que cargue la ficha.
-        let _ = wait_until(
-            || detail_state(&detail_page),
+        // Sondea hasta que la ficha este lista (detalle real con datos) o
+        // aparezca un captcha, en vez de esperar a que termine la navegacion
+        // completa.
+        let state = wait_until(
+            || async {
+                if has_captcha(&detail_page).await? {
+                    return Ok(Some(true));
+                }
+                if is_detail_loaded(&detail_page).await? {
+                    return Ok(Some(false));
+                }
+                Ok(None)
+            },
             Duration::from_millis(200),
-            Duration::from_secs(15),
+            Duration::from_secs(20),
         )
         .await;
+
+        // Hay captcha: pasa por el workflow de desbloqueo antes de extraer.
+        if matches!(state, Ok(true)) {
+            if let Err(err) = unblock(&detail_page, config, vpn, verboser).await {
+                let _ = detail_page.close().await?;
+                return Err(err);
+            }
+
+            // Tras resolver el bloqueo, espera de nuevo a que cargue la ficha.
+            let _ = wait_until(
+                || detail_state(&detail_page),
+                Duration::from_millis(200),
+                Duration::from_secs(20),
+            )
+            .await;
+        }
+
+        if is_detail_loaded(&detail_page).await.unwrap_or(false) {
+            let raw = extract_detail(&detail_page).await?;
+            let _ = detail_page.close().await;
+
+            if raw.name.is_empty() {
+                return Ok(DetailOutcome::Skipped);
+            }
+
+            let email = clean_email(&raw.email);
+            let web = clean_web(&raw.web);
+            let tfno = clean_tfno(&raw.tfno);
+
+            verboser.processed_coincidence(&raw.name, count);
+
+            return Ok(DetailOutcome::Found(Coincidence {
+                name: raw.name,
+                email,
+                web,
+                tfno,
+                source_url: clean_empresite_url(link),
+            }));
+        }
+
+        // No es un detalle real: cerrar la pestana y reabrir la misma URL.
+        let _ = detail_page.close().await;
+
+        if verboser.is_cancelled() {
+            break;
+        }
+
+        if attempt < MAX_DETAIL_ATTEMPTS {
+            verboser.warn(&format!(
+                "Ficha {} no cargo correctamente (intento {}); reabriendo",
+                link, attempt
+            ));
+            tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+        }
     }
 
-    let raw = extract_detail(&detail_page).await?;
-    let _ = detail_page.close().await;
-
-    if raw.name.is_empty() {
-        return Ok(DetailOutcome::Skipped);
-    }
-
-    let email = clean_email(&raw.email);
-    let web = clean_web(&raw.web);
-    let tfno = clean_tfno(&raw.tfno);
-
-    verboser.processed_coincidence(&raw.name, count);
-
-    Ok(DetailOutcome::Found(Coincidence {
-        name: raw.name,
-        email,
-        web,
-        tfno,
-        source_url: clean_empresite_url(link),
-    }))
+    Err(anyhow::anyhow!(
+        "no se pudo cargar el detalle {} tras {} intentos",
+        link,
+        MAX_DETAIL_ATTEMPTS
+    ))
 }
 
 /// Scrapea una pagina del listado de Empresite: extrae los enlaces a las fichas
@@ -562,7 +614,9 @@ pub async fn scrape(
     }
 
     // El listado puede venir bloqueado por captcha.
-    unblock(&page, config, vpn, verboser).await?;
+    if has_captcha(&page).await? {
+        unblock(&page, config, vpn, verboser).await?;
+    }
 
     let links = extract_company_links(&page).await?;
     verboser.found_multiple_coincidences();
