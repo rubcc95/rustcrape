@@ -1,12 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use chromiumoxide::cdp::browser_protocol::page::{
-    EventJavascriptDialogOpening, HandleJavaScriptDialogParams, HandleJavaScriptDialogReturns,
-};
 use chromiumoxide::handler::viewport::Viewport;
-use chromiumoxide::types::CommandResponse;
-use chromiumoxide::{Browser as COxideBrowser, BrowserConfig, Page};
+use chromiumoxide::{Browser as COxideBrowser, BrowserConfig};
 use futures::StreamExt;
 use rand::Rng;
 

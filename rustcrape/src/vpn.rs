@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chromiumoxide::Browser;
+// use chromiumoxide::Browser;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -300,8 +300,8 @@ impl VpnRotator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::verboser::DebugProgress;
+    // use super::*;
+    // use crate::verboser::DebugProgress;
 
     // #[tokio::test]
     // async fn test_force_rotate_con_vpn_desactivada_no_rota() {

@@ -142,7 +142,9 @@ async fn run_target<S: Scraper>(
             timestamps.push(Instant::now());
         }
 
-        vpn.tick(&*verboser).await;
+        if let Err(err) = vpn.tick(&*verboser).await {
+            verboser.error(&format!("Error rotating vpn: {err}"));
+        }
 
         verboser.obtaining_task();
 

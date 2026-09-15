@@ -284,7 +284,6 @@ async fn unblock(
     // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
     // se completa pero el captcha persiste, el bucle prueba con otra IP.
     if !vpn.force_rotate_awaited(verboser).await? {
-
         // Recarga real, ignorando cache y sin bloquear en wait_for_navigation;
         // el estado se comprueba en el wait_until de readyState de abajo.
         page.execute(ReloadParams::builder().ignore_cache(true).build())
@@ -308,6 +307,11 @@ async fn unblock(
         .await?;
 
         if !blocked {
+            return Ok(());
+        }
+
+        if try_solve_captcha(page, verboser).await? {
+            verboser.warn("Captcha resuelto automaticamente");
             return Ok(());
         }
     }
