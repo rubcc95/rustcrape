@@ -5,8 +5,18 @@ use anyhow::Result;
 use sqlx::{MySqlPool, Row};
 
 const NUMERIC_TYPES: &[&str] = &[
-    "decimal", "double", "float", "int", "bigint", "smallint",
-    "tinyint", "mediumint", "dec", "fixed", "numeric", "real",
+    "decimal",
+    "double",
+    "float",
+    "int",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "mediumint",
+    "dec",
+    "fixed",
+    "numeric",
+    "real",
 ];
 
 const NEW_BOUND_COLUMNS: &[(&str, &str)] = &[
@@ -19,10 +29,7 @@ const NEW_BOUND_COLUMNS: &[(&str, &str)] = &[
 // Tablas imprescindibles para reconocer la base de datos como de rustcrape.
 // `bounds` (Google Maps) y `empresite_pages` (Empresite) se crean bajo demanda
 // segun el target que se vaya a usar.
-const REQUIRED_TABLES: &[&str] = &[
-    "coincidences",
-    "configuration_rustcrape",
-];
+const REQUIRED_TABLES: &[&str] = &["coincidences", "configuration_rustcrape"];
 
 struct ColumnInfo {
     name: String,
@@ -50,9 +57,19 @@ impl MysqlPersistence {
         verboser: &impl Verboser,
     ) -> Result<Self> {
         let (host, port, user, password, database) = match config {
-            DbConfig::Mysql { host, port, user, password, database } => {
-                (host.clone(), *port, user.clone(), password.clone(), database.clone())
-            }
+            DbConfig::Mysql {
+                host,
+                port,
+                user,
+                password,
+                database,
+            } => (
+                host.clone(),
+                *port,
+                user.clone(),
+                password.clone(),
+                database.clone(),
+            ),
             _ => unreachable!(),
         };
 
@@ -63,13 +80,12 @@ impl MysqlPersistence {
         let admin_pool = MySqlPool::connect(&engine_url).await?;
 
         // 2. Check if database exists
-        let exists = sqlx::query(
-            "SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1",
-        )
-        .bind(&database)
-        .fetch_optional(&admin_pool)
-        .await?
-        .is_some();
+        let exists =
+            sqlx::query("SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1")
+                .bind(&database)
+                .fetch_optional(&admin_pool)
+                .await?
+                .is_some();
 
         if !exists {
             verboser.creating_db();
@@ -82,11 +98,21 @@ impl MysqlPersistence {
         }
 
         // 3. Connect with the database
-        let db_url = format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, database);
+        let db_url = format!(
+            "mysql://{}:{}@{}:{}/{}",
+            user, password, host, port, database
+        );
         let pool = MySqlPool::connect(&db_url).await?;
         drop(admin_pool);
 
-        let this = Self { pool, db_name: database, host, port, user, password };
+        let this = Self {
+            pool,
+            db_name: database,
+            host,
+            port,
+            user,
+            password,
+        };
 
         // 4. Ensure tables
         if !exists {
@@ -248,10 +274,11 @@ impl MysqlPersistence {
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.verifying_db();
-        let rows = sqlx::query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?")
-            .bind(&self.db_name)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?")
+                .bind(&self.db_name)
+                .fetch_all(&self.pool)
+                .await?;
 
         if rows.is_empty() {
             return self.create_tables(params, verboser).await;
@@ -275,12 +302,11 @@ impl MysqlPersistence {
             self.validate_coincidences().await?;
             self.validate_coincidences_unique().await?;
 
-            let config_row = sqlx::query(
-                "SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1",
-            )
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("configuration_rustcrape table is empty"))?;
+            let config_row =
+                sqlx::query("SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1")
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("configuration_rustcrape table is empty"))?;
             params.search_query = config_row.get("search_query");
             params.zoom = config_row.get("zoom");
             return Ok(());
@@ -317,9 +343,16 @@ impl MysqlPersistence {
         let cols = self.get_columns("coincidences").await?;
         let required = ["name", "email", "web", "tfno", "source_url"];
         let names: std::collections::HashSet<&str> = cols.iter().map(|c| c.name.as_str()).collect();
-        let missing: Vec<&str> = required.iter().filter(|n| !names.contains(*n)).copied().collect();
+        let missing: Vec<&str> = required
+            .iter()
+            .filter(|n| !names.contains(*n))
+            .copied()
+            .collect();
         if !missing.is_empty() {
-            anyhow::bail!("Table coincidences: missing columns: {}", missing.join(", "));
+            anyhow::bail!(
+                "Table coincidences: missing columns: {}",
+                missing.join(", ")
+            );
         }
         Ok(())
     }
@@ -389,42 +422,79 @@ impl Persistence for MysqlPersistence {
         Ok(())
     }
 
-    async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
-        Ok(
-            sqlx::query(
-                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL ORDER BY id LIMIT 1"
-            )
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .next()
-            .map(|row| (row.get("id"), row.get("lat"), row.get("lng"))),
-        )
-    }
+    // async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
+    //     Ok(
+    //         sqlx::query(
+    //             "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL ORDER BY id LIMIT 1"
+    //         )
+    //         .fetch_all(&self.pool)
+    //         .await?
+    //         .into_iter()
+    //         .next()
+    //         .map(|row| (row.get("id"), row.get("lat"), row.get("lng"))),
+    //     )
+    // }
 
-    async fn claim_bound(&self, bound_id: i64) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE bounds SET in_progress = 1, started_at = NOW() WHERE id = ?",
+    async fn claim_bound(&self) -> Result<Option<(i64, f32, f32)>> {
+        let mut tx = self.pool.begin().await?;
+
+        let row = sqlx::query(
+            r#"
+                SELECT id, lat, lng 
+                FROM bounds 
+                WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) 
+                    AND items IS NULL 
+                ORDER BY id 
+                LIMIT 1
+                FOR UPDATE
+            "#,
         )
-        .bind(bound_id)
-        .execute(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
-        Ok(result.rows_affected() > 0)
+
+        Ok(match row {
+            Some(row) => {
+                let id: i64 = row.get("id");
+                let lat: f32 = row.get("lat");
+                let lng: f32 = row.get("lng");
+                sqlx::query(
+                    r#"
+                        UPDATE bounds 
+                        SET in_progress = 1, started_at = NOW() 
+                        WHERE id = ?
+                    "#,
+                )
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                Some((id, lat, lng))
+            }
+            None => {
+                tx.rollback().await?;
+                None
+            }
+        })
+
     }
 
-    async fn release_bound(
-        &self,
-        bound_id: i64,
-        completed: Option<(i32, i32)>,
-    ) -> Result<bool> {
+    async fn release_bound(&self, bound_id: i64, completed: Option<(i32, i32)>) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
-                "UPDATE bounds SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? WHERE id = ?",
+                r#"
+                    UPDATE bounds 
+                    SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? 
+                    WHERE id = ?
+                "#,
             )
             .bind(items)
             .bind(duplicated),
             None => sqlx::query(
-                "UPDATE bounds SET in_progress = 0, started_at = NOW() WHERE id = ?",
+                r#"
+                    UPDATE bounds 
+                    SET in_progress = 0, started_at = NOW() 
+                    WHERE id = ?
+                "#,
             ),
         }
         .bind(bound_id)
@@ -448,27 +518,44 @@ impl Persistence for MysqlPersistence {
         Ok(())
     }
 
-    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
-        Ok(
-            sqlx::query(
-                "SELECT id, page FROM empresite_pages WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) AND items IS NULL ORDER BY page ASC LIMIT 1",
-            )
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .next()
-            .map(|row| (row.get("id"), row.get("page"))),
-        )
-    }
+    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+        let mut tx = self.pool.begin().await?;
 
-    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE empresite_pages SET in_progress = 1, started_at = NOW() WHERE id = ?",
+        let row = sqlx::query(
+            r#"
+                SELECT id, PAGE 
+                FROM empresite_pages 
+                WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) 
+                    AND items IS NULL 
+                LIMIT 1
+                FOR UPDATE
+            "#,
         )
-        .bind(page_id)
-        .execute(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
-        Ok(result.rows_affected() > 0)
+
+        Ok(match row {
+            Some(row) => {
+                let id: i64 = row.get("id");
+                let page: u32 = row.get("page");                
+                sqlx::query(
+                    r#"
+                        UPDATE empresite_pages 
+                        SET in_progress = 1, started_at = NOW() 
+                        WHERE id = ?                        
+                    "#,
+                )
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                Some((id, page))
+            }
+            None => {
+                tx.rollback().await?;
+                None
+            }
+        })
     }
 
     async fn release_empresite_page(

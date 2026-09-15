@@ -56,17 +56,11 @@ impl Persistence for PersistenceKind {
         }
     }
 
-    async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
-        match self {
-            PersistenceKind::Sqlite(p) => p.read_bound().await,
-            PersistenceKind::Mysql(p) => p.read_bound().await,
-        }
-    }
 
-    async fn claim_bound(&self, bound_id: i64) -> Result<bool> {
+    async fn claim_bound(&self) -> Result<Option<(i64, f32, f32)>> {
         match self {
-            PersistenceKind::Sqlite(p) => p.claim_bound(bound_id).await,
-            PersistenceKind::Mysql(p) => p.claim_bound(bound_id).await,
+            PersistenceKind::Sqlite(p) => p.claim_bound().await,
+            PersistenceKind::Mysql(p) => p.claim_bound().await,
         }
     }
 
@@ -95,17 +89,10 @@ impl Persistence for PersistenceKind {
         }
     }
 
-    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
         match self {
-            PersistenceKind::Sqlite(p) => p.read_empresite_page().await,
-            PersistenceKind::Mysql(p) => p.read_empresite_page().await,
-        }
-    }
-
-    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
-        match self {
-            PersistenceKind::Sqlite(p) => p.claim_empresite_page(page_id).await,
-            PersistenceKind::Mysql(p) => p.claim_empresite_page(page_id).await,
+            PersistenceKind::Sqlite(p) => p.claim_empresite_page().await,
+            PersistenceKind::Mysql(p) => p.claim_empresite_page().await,
         }
     }
 

@@ -9,8 +9,8 @@ pub trait Persistence: Send + Sync {
     // --- Google Maps: rejilla de bounds ---
     async fn has_bounds(&self) -> Result<bool>;
     async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()>;
-    async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>>;
-    async fn claim_bound(&self, bound_id: i64) -> Result<bool>;
+    //async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>>;
+    async fn claim_bound(&self) -> Result<Option<(i64, f32, f32)>>;
     async fn release_bound(
         &self,
         bound_id: i64,
@@ -20,8 +20,8 @@ pub trait Persistence: Send + Sync {
     // --- Empresite: cola dinamica de paginas ---
     async fn has_empresite_pages(&self) -> Result<bool>;
     async fn insert_empresite_page(&self, page: u32) -> Result<()>;
-    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>>;
-    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool>;
+    //async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>>;
+    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>>;
     async fn release_empresite_page(
         &self,
         page_id: i64,

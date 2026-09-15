@@ -62,11 +62,10 @@ impl Scraper for EmpresiteScraper {
     }
 
     async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
-        let Some((id, page)) = persist.read_empresite_page().await? else {
-            return Ok(None);
-        };
-        persist.claim_empresite_page(id).await?;
-        Ok(Some((id, EmpresiteParams { page })))
+        Ok(persist
+            .claim_empresite_page()
+            .await?
+            .map(|(id, page)| (id, EmpresiteParams { page })))
     }
 
     async fn release<P: Persistence>(

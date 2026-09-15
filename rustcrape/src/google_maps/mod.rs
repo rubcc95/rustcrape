@@ -65,11 +65,7 @@ impl Scraper for GoogleMapsScraper {
     }
 
     async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
-        let Some((id, lat, lng)) = persist.read_bound().await? else {
-            return Ok(None);
-        };
-        persist.claim_bound(id).await?;
-        Ok(Some((id, GoogleMapsParams { lat, lng })))
+        Ok(persist.claim_bound().await?.map(|(id, lat, lng)| (id, GoogleMapsParams { lat, lng })))
     }
 
     async fn release<P: Persistence>(

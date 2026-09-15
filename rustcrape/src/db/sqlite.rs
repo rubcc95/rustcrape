@@ -10,11 +10,8 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
 pub fn default_path() -> String {
-    let base = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join("rustcrape.db")
-        .to_string_lossy()
-        .to_string()
+    let base = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    base.join("rustcrape.db").to_string_lossy().to_string()
 }
 
 #[derive(Clone)]
@@ -32,8 +29,7 @@ impl SqlitePersistence {
             std::fs::create_dir_all(parent).ok();
         }
 
-        let opts = SqliteConnectOptions::from_str(db_path)?
-            .create_if_missing(true);
+        let opts = SqliteConnectOptions::from_str(db_path)?.create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(opts)
@@ -127,11 +123,10 @@ impl SqlitePersistence {
         .await?;
 
         // Load persisted config (overwrites params if db already existed)
-        if let Ok(Some(row)) = sqlx::query(
-            "SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1",
-        )
-        .fetch_optional(&self.pool)
-        .await
+        if let Ok(Some(row)) =
+            sqlx::query("SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await
         {
             params.search_query = row.get("search_query");
             params.zoom = row.get("zoom");
@@ -194,8 +189,7 @@ impl Persistence for SqlitePersistence {
 
     async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()> {
         for chunk in centers.chunks(100) {
-            let mut builder =
-                sqlx::QueryBuilder::new("INSERT OR IGNORE INTO bounds (lat, lng) ");
+            let mut builder = sqlx::QueryBuilder::new("INSERT OR IGNORE INTO bounds (lat, lng) ");
             builder.push_values(chunk, |mut b, (lat, lng)| {
                 b.push_bind(lat);
                 b.push_bind(lng);
@@ -205,34 +199,42 @@ impl Persistence for SqlitePersistence {
         Ok(())
     }
 
-    async fn read_bound(&self) -> Result<Option<(i64, f32, f32)>> {
-        Ok(
-            sqlx::query(
-                "SELECT id, lat, lng FROM bounds WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours')) AND items IS NULL ORDER BY id LIMIT 1"
-            )
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .next()
-            .map(|row| (row.get("id"), row.get("lat"), row.get("lng"))),
+    async fn claim_bound(&self) -> Result<Option<(i64, f32, f32)>> {
+        let row = sqlx::query(
+            r#"
+        SELECT id, lat, lng
+        FROM bounds
+        WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours'))
+          AND items IS NULL
+        ORDER BY id
+        LIMIT 1
+        "#,
         )
-    }
-
-    async fn claim_bound(&self, bound_id: i64) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE bounds SET in_progress = 1, started_at = datetime('now') WHERE id = ?",
-        )
-        .bind(bound_id)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(result.rows_affected() > 0)
+
+        Ok(match row {
+            Some(row) => {
+                let id: i64 = row.get("id");
+                let lat: f32 = row.get("lat");
+                let lng: f32 = row.get("lng");
+
+                sqlx::query(
+                    "UPDATE bounds
+                 SET in_progress = 1, started_at = datetime('now')
+                 WHERE id = ?",
+                )
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+
+                Some((id, lat, lng))
+            }
+            None => None,
+        })
     }
 
-    async fn release_bound(
-        &self,
-        bound_id: i64,
-        completed: Option<(i32, i32)>,
-    ) -> Result<bool> {
+    async fn release_bound(&self, bound_id: i64, completed: Option<(i32, i32)>) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
                 "UPDATE bounds SET in_progress = 0, started_at = datetime('now'), items = ?, duplicated = ? WHERE id = ?",
@@ -264,27 +266,38 @@ impl Persistence for SqlitePersistence {
         Ok(())
     }
 
-    async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>> {
-        Ok(
-            sqlx::query(
-                "SELECT id, page FROM empresite_pages WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours')) AND items IS NULL ORDER BY page ASC LIMIT 1",
-            )
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .next()
-            .map(|row| (row.get("id"), row.get::<i64, _>("page") as u32)),
+    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+        let row = sqlx::query(
+            r#"
+                SELECT id, PAGE 
+                FROM empresite_pages
+                WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours'))
+                    AND items IS NULL          
+                LIMIT 1
+        "#,
         )
-    }
-
-    async fn claim_empresite_page(&self, page_id: i64) -> Result<bool> {
-        let result = sqlx::query(
-            "UPDATE empresite_pages SET in_progress = 1, started_at = datetime('now') WHERE id = ?",
-        )
-        .bind(page_id)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(result.rows_affected() > 0)
+
+        Ok(match row {
+            Some(row) => {
+                let id: i64 = row.get("id");
+                let page: u32 = row.get("page");
+                sqlx::query(
+                    r#"
+                        UPDATE empresite_pages 
+                        SET in_progress = 1, started_at = datetime('now')
+                        WHERE id = ?                        
+                    "#,
+                )
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+
+                Some((id, page))
+            }
+            None => None,
+        })
     }
 
     async fn release_empresite_page(
