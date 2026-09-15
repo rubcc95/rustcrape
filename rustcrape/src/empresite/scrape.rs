@@ -264,27 +264,26 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
 async fn unblock(
+    //browser: &Browser,
     page: &Page,
     config: &EmpresiteConfig,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
 ) -> Result<()> {
-    loop {
-        verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
+    verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
-        // Plan A: click automatico.
-        if try_solve_captcha(page, verboser).await? {
-            verboser.warn("Captcha resuelto automaticamente");
-            return Ok(());
-        }
+    // Plan A: click automatico.
+    if try_solve_captcha(page, verboser).await? {
+        verboser.warn("Captcha resuelto automaticamente");
+        return Ok(());
+    }
 
-        // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
-        // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
-        // se completa pero el captcha persiste, el bucle prueba con otra IP.
-        if !vpn.force_rotate(verboser).await? {
-            break;
-        }
-        verboser.warn("VPN rotada; recargando pagina");
+    // *** Toma la vieja ip utilizando el browser ***
+
+    // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
+    // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
+    // se completa pero el captcha persiste, el bucle prueba con otra IP.
+    if !vpn.force_rotate_awaited(verboser).await? {
 
         // Recarga real, ignorando cache y sin bloquear en wait_for_navigation;
         // el estado se comprueba en el wait_until de readyState de abajo.
@@ -309,7 +308,7 @@ async fn unblock(
         .await?;
 
         if !blocked {
-            break;
+            return Ok(());
         }
     }
 
@@ -319,8 +318,8 @@ async fn unblock(
         return Ok(());
     }
 
-    // Sin VPN y sin modo manual: pequeno backoff para no martillear.
-    tokio::time::sleep(Duration::from_secs(30)).await;
+    // // Sin VPN y sin modo manual: pequeno backoff para no martillear.
+    // tokio::time::sleep(Duration::from_secs(30)).await;
     Err(anyhow::anyhow!(
         "no se pudo resolver el captcha de Empresite"
     ))
