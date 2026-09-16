@@ -205,14 +205,21 @@ impl Browser {
     }
 
     pub async fn empresite(config: &Config) -> Result<Self> {
-        Self::launch(config, "empresite").await
+        Ok(Self::new(
+            config.empresite.headless,
+            config.browser_path.as_deref().map(std::path::Path::new),
+            Some(
+                &match config.browser_profile_dir.as_deref() {
+                    Some(dir) => Path::new(dir).join("rustcrape-profiles"),
+                    None => std::env::temp_dir().join("rustcrape-profiles"),
+                }
+                .join("empresite"),
+            ),
+        )
+        .await?)
     }
 
     pub async fn gmaps(config: &Config) -> Result<Self> {
-        Self::launch(config, "gmaps").await
-    }
-
-    async fn launch(config: &Config, name: impl AsRef<Path>) -> Result<Self> {
         Ok(Self::new(
             config.gmaps.headless,
             config.browser_path.as_deref().map(std::path::Path::new),
@@ -221,13 +228,13 @@ impl Browser {
                     Some(dir) => Path::new(dir).join("rustcrape-profiles"),
                     None => std::env::temp_dir().join("rustcrape-profiles"),
                 }
-                .join(name),
+                .join("gmaps"),
             ),
         )
         .await?)
     }
 
-    pub async fn close(mut self) -> Result<()> {
+    pub async fn close(&mut self) -> Result<()> {
         self.browser.close().await?;
         self.browser.wait().await?;
         Ok(())

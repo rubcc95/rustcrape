@@ -3350,6 +3350,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chromiumoxide",
+ "derive_more",
  "futures",
  "libc",
  "rand 0.8.6",

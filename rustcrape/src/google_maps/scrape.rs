@@ -457,13 +457,24 @@ pub async fn scrape(
     config: &Config,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
+    let mut instance = Browser::gmaps(config).await?;
+    let scrape = scrape_internal(&instance, params, config, verboser).await;
+    instance.close().await?;
+    scrape
+} 
+
+async fn scrape_internal(
+    browser: &Browser,
+    params: &GMapsParams,
+    config: &Config,
+    verboser: &dyn Verboser,
+) -> Result<ScrapeResult> {
     verboser.opening_browser("");
-    let instance = Browser::gmaps(config).await?;
     let url = format!(
         "https://www.google.com/maps/search/{}/@{},{},{}z",
         config.gmaps.search_query, params.lat, params.lng, config.gmaps.zoom
     );
-    let page = instance.new_page(&url).await?;
+    let page = browser.new_page(&url).await?;
     page.wait_for_navigation().await?;
     tokio::time::sleep(Duration::from_secs(3)).await;
 

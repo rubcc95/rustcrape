@@ -11,6 +11,7 @@ use crate::vpn::VpnRotator;
 
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
+use std::future::Future;
 use std::time::Duration;
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
@@ -263,15 +264,19 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
 }
 
 /// Garantiza que la pagina no este bloqueada, aplicando los planes A, B y C.
-async fn unblock<'page, F: std::future::Future<Output = Result<bool>>>(
-    mut browser: Browser,
-    mut page: Page,
+async fn unblock<F>(
+    browser: &mut Browser,
+    page: &mut Page,
     config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
-    is_correctly_loaded: impl FnMut(&'page Page) -> F + 'page,
-) -> Result<(Browser, Page)> {
-    // let mut new_page: Page;
+    is_correctly_loaded: impl Fn(Page) -> F,
+) -> Result<()>
+where
+    
+    F: Future<Output = Result<bool>>,
+{
+    // let mut new_page: Page; 
     // let mut page_ref = page;
     // let mut page_id = None;
 
@@ -280,7 +285,7 @@ async fn unblock<'page, F: std::future::Future<Output = Result<bool>>>(
     // Plan A: click automatico.
     if try_solve_captcha(&page, verboser).await? {
         verboser.warn("Captcha resuelto automaticamente");
-        return Ok((browser, page));
+        return Ok(());
     }
 
     // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
@@ -290,17 +295,17 @@ async fn unblock<'page, F: std::future::Future<Output = Result<bool>>>(
         let url = page.url().await?.unwrap();
 
         browser.close().await?;
-        browser = Browser::empresite(config).await?;
-        page = browser.new_page(url).await?;
+        *browser = Browser::empresite(config).await?;
+        *page = browser.new_page(url).await?;
 
         loop {
             page.wait_for_navigation_response().await?;
             let blocked = wait_until(
                 || async {
-                    if has_captcha(&page).await? {
+                    if has_captcha(page).await? {
                         return Ok(Some(true));
                     }
-                    if is_detail_loaded(&page).await? {
+                    if is_correctly_loaded(page.clone()).await? {
                         return Ok(Some(false));
                     }
                     Ok(None)
@@ -313,12 +318,12 @@ async fn unblock<'page, F: std::future::Future<Output = Result<bool>>>(
             match blocked {
                 Ok(blocked) => {
                     if !blocked {
-                        return Ok((browser, page));
+                        return Ok(());
                     }
 
                     if try_solve_captcha(&page, verboser).await? {
                         verboser.warn("Captcha resuelto automaticamente");
-                        return Ok((browser, page));
+                        return Ok(());
                     }
                 }
                 Err(err) => {
@@ -336,7 +341,7 @@ async fn unblock<'page, F: std::future::Future<Output = Result<bool>>>(
     // Plan C: resolucion manual (solo si hay navegador visible).
     if !config.empresite.headless {
         wait_manual(&page, verboser).await?;
-        return Ok((browser, page));
+        return Ok(());
     }
 
     Err(anyhow::anyhow!(
@@ -402,19 +407,6 @@ async fn is_detail_loaded(page: &Page) -> Result<bool> {
         return !!(seccion || cabecera || contacto);
     })()"#;
     Ok(page.evaluate(js).await?.into_value()?)
-}
-
-/// Estado de carga de una ficha: `Some(true)` si esta bloqueada por captcha,
-/// `Some(false)` si el detalle real ya esta cargado, `None` si aun no esta
-/// lista (ni captcha ni datos confirmados).
-async fn detail_state(page: &Page) -> Result<Option<bool>> {
-    if has_captcha(page).await? {
-        return Ok(Some(true));
-    }
-    if is_detail_loaded(page).await? {
-        return Ok(Some(false));
-    }
-    Ok(None)
 }
 
 /// Limpia el email: quita `mailto:` y cualquier query (`?subject=...`).
@@ -504,13 +496,13 @@ const MAX_DETAIL_ATTEMPTS: usize = 3;
 /// pestana y se vuelve a abrir la misma URL sin pasar a la siguiente ficha,
 /// hasta un maximo de intentos.
 async fn scrape_detail(
-    mut browser: Browser,
+    browser: &mut Browser,
     link: &str,
     config: &Config,
     vpn: &VpnRotator,
     verboser: &dyn Verboser,
     count: usize,
-) -> Result<(Browser, DetailOutcome)> {
+) -> Result<DetailOutcome> {
     let mut page = browser.new_page(link).await?;
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
         //dismiss_dialogs(&detail_page).await;
@@ -530,13 +522,13 @@ async fn scrape_detail(
             },
             Duration::from_millis(200),
             Duration::from_secs(7),
-        )
+        ) 
         .await;
 
         match is_blocked {
             Ok(true) => {
-                (browser, page) = unblock(browser, page, config, vpn, verboser, |page| async {
-                    is_detail_loaded(page).await
+                unblock(browser, &mut page, config, vpn, verboser, |page| async move {
+                    is_detail_loaded(&page).await
                 })
                 .await?;
             }
@@ -563,7 +555,7 @@ async fn scrape_detail(
 
         if raw.name.is_empty() {
             page.close().await?;
-            return Ok((browser, DetailOutcome::Skipped));
+            return Ok(DetailOutcome::Skipped);
         }
 
         let email = clean_email(&raw.email);
@@ -573,16 +565,13 @@ async fn scrape_detail(
         verboser.processed_coincidence(&raw.name, count);
 
         page.close().await?;
-        return Ok((
-            browser,
-            DetailOutcome::Found(Coincidence {
-                name: raw.name,
-                email,
-                web,
-                tfno,
-                source_url: clean_empresite_url(link),
-            }),
-        ));
+        return Ok(DetailOutcome::Found(Coincidence {
+            name: raw.name,
+            email,
+            web,
+            tfno,
+            source_url: clean_empresite_url(link),
+        }));
     }
 
     page.close().await?;
@@ -595,7 +584,8 @@ async fn scrape_detail(
 
 /// Scrapea una pagina del listado de Empresite: extrae los enlaces a las fichas
 /// y, para cada una, abre su detalle y registra los datos de contacto.
-pub async fn scrape(
+pub async fn scrape_internal(
+    browser: &mut Browser,
     params: &EmpresiteParams,
     config: &Config,
     vpn: &VpnRotator,
@@ -613,7 +603,6 @@ pub async fn scrape(
         )
     };
 
-    let mut browser = Browser::empresite(config).await?;
     let mut page = browser.new_page(&url).await?;
 
     page.wait_for_navigation().await?;
@@ -628,7 +617,7 @@ pub async fn scrape(
 
     // El listado puede venir bloqueado por captcha.
     if has_captcha(&page).await? {
-        (browser, page) = unblock(browser, page, &config, vpn, verboser, |_| async {
+        unblock(browser, &mut page, &config, vpn, verboser, |_page| async move {
             Ok(true)
         })
         .await?;
@@ -651,16 +640,26 @@ pub async fn scrape(
         ))
         .await;
 
-        //let (new_browser, detail) =
-        let (new_browser, detail) =
-            scrape_detail(browser, &link, &config, vpn, verboser, idx + 1).await?;
-        browser = new_browser;
-        if let DetailOutcome::Found(coincidence) = detail {
+        if let DetailOutcome::Found(coincidence) =
+            scrape_detail(browser, &link, &config, vpn, verboser, idx + 1).await?
+        {
             coincidences.push(coincidence);
         }
     }
 
     Ok(ScrapeResult::new(coincidences, has_more))
+}
+
+pub async fn scrape(
+    params: &EmpresiteParams,
+    config: &Config,
+    vpn: &VpnRotator,
+    verboser: &dyn Verboser,
+) -> Result<ScrapeResult> {
+    let mut browser = Browser::empresite(config).await?;
+    let out = scrape_internal(&mut browser, params, config, vpn, verboser).await;
+    browser.close().await?;
+    out
 }
 
 #[cfg(test)]
