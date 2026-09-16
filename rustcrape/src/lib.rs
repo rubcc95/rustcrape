@@ -1,6 +1,7 @@
 pub mod browser;
 pub mod db;
 pub mod empresite;
+pub mod empresite_http;
 pub mod engine;
 pub mod google_maps;
 pub mod scraper;

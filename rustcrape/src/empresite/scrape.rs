@@ -622,8 +622,6 @@ pub async fn scrape_internal(
     let mut page = browser.new_page(&url).await?;
 
     page.wait_for_navigation().await?;
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
     verboser.accepting_cookies();
     let _ = accept_cookies(&page).await;
 

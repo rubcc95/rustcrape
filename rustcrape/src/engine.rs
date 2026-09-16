@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::db::PersistenceKind;
-use crate::empresite::EmpresiteScraper;
+use crate::empresite_http::EmpresiteHttpScraper;
 use crate::google_maps::GoogleMapsScraper;
 use crate::scraper::Scraper;
 use crate::storage::Persistence;
@@ -44,7 +44,7 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
     let empresite = config
         .empresite
         .enabled
-        .then(|| EmpresiteScraper::new(vpn.clone()));
+        .then(|| EmpresiteHttpScraper::new(vpn.clone()));
 
     match config.execution_mode {
         ExecutionMode::Sequential => {
