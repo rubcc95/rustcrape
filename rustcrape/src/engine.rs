@@ -143,8 +143,7 @@ async fn run_target<S: Scraper>(
             break;
         };
 
-        let label = scraper.describe(&params);
-        verboser.claimed_task(&label);
+        verboser.claimed_task(&scraper.describe(&params));
 
         if verboser.is_cancelled() {
             verboser.warn("Cancelado antes de abrir el navegador");
@@ -152,7 +151,7 @@ async fn run_target<S: Scraper>(
             break;
         }
 
-        verboser.opening_browser(&label);
+        // verboser.opening_browser(&label);
         //let profile_dir = profile_root.join(scraper.name());
         // let browser = match Browser::launch(
         //     scraper.headless(),

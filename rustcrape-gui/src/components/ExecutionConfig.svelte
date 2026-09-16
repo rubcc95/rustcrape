@@ -43,13 +43,13 @@
         label="Rate limit (por hora)"
         id="gm-rate-limit"
         min={1}
-        bind:value={projectStore.executionConfig.google_maps.rate_limit}
+        bind:value={projectStore.executionConfig.gmaps.rate_limit}
       />
       <CheckboxNumber
         label="Iteraciones"
         id="gm-iterations"
         min={1}
-        bind:value={projectStore.executionConfig.google_maps.iterations}
+        bind:value={projectStore.executionConfig.gmaps.iterations}
       />
     </div>
 
@@ -58,13 +58,13 @@
         label="Delay min (ms)"
         id="gm-delay-min"
         min={100}
-        bind:value={projectStore.executionConfig.google_maps.delay_min}
+        bind:value={projectStore.executionConfig.gmaps.delay_min}
       />
       <NumberInput
         label="Delay max (ms)"
         id="gm-delay-max"
         min={100}
-        bind:value={projectStore.executionConfig.google_maps.delay_max}
+        bind:value={projectStore.executionConfig.gmaps.delay_max}
       />
     </div>
 
@@ -73,20 +73,20 @@
         label="Stop threshold"
         id="gm-stop-threshold"
         min={1}
-        bind:value={projectStore.executionConfig.google_maps.stop_threshold}
+        bind:value={projectStore.executionConfig.gmaps.stop_threshold}
       />
       <div class="field toggle-field">
         <!-- svelte-ignore a11y_label_has_associated_control -->
         <label>Headless</label>
         <div
           class="check-track"
-          class:checked={projectStore.executionConfig.google_maps.headless}
+          class:checked={projectStore.executionConfig.gmaps.headless}
           role="checkbox"
-          aria-checked={projectStore.executionConfig.google_maps.headless}
+          aria-checked={projectStore.executionConfig.gmaps.headless}
           aria-label="Headless Google Maps"
           tabindex="0"
-          onclick={() => projectStore.executionConfig.google_maps.headless = !projectStore.executionConfig.google_maps.headless}
-          onkeydown={(e) => e.key === 'Enter' && (projectStore.executionConfig.google_maps.headless = !projectStore.executionConfig.google_maps.headless)}
+          onclick={() => projectStore.executionConfig.gmaps.headless = !projectStore.executionConfig.gmaps.headless}
+          onkeydown={(e) => e.key === 'Enter' && (projectStore.executionConfig.gmaps.headless = !projectStore.executionConfig.gmaps.headless)}
         >
           <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />

@@ -61,7 +61,7 @@ pub struct Config {
 
 #[derive(Deserialize)]
 struct ConfigRaw {
-    google_maps: GMapsConfig,
+    gmaps: GMapsConfig,
     empresite: EmpresiteConfig,
     #[serde(default)]
     execution_mode: ExecutionMode,
@@ -79,7 +79,7 @@ struct ConfigRaw {
 impl From<ConfigRaw> for Config {
     fn from(raw: ConfigRaw) -> Self {
         Config {
-            gmaps: raw.google_maps,
+            gmaps: raw.gmaps,
             empresite: raw.empresite,
             execution_mode: raw.execution_mode,
             db: raw.db,
@@ -166,7 +166,7 @@ impl<'de> Deserialize<'de> for Config {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        if value.get("google_maps").is_some() {
+        if value.get("gmaps").is_some() {
             ConfigRaw::deserialize(value)
                 .map(Config::from)
                 .map_err(serde::de::Error::custom)

@@ -20,19 +20,19 @@
       <div class="info-item">
         <span class="info-label">Término de búsqueda</span>
         <span class="info-value"
-          >{projectStore.currentProject.config.google_maps.search_query}</span
+          >{projectStore.currentProject.config.gmaps.search_query}</span
         >
       </div>
       <div class="info-item">
         <span class="info-label">Zoom</span>
         <span class="info-value"
-          >{projectStore.currentProject.config.google_maps.zoom}</span
+          >{projectStore.currentProject.config.gmaps.zoom}</span
         >
       </div>
       <div class="info-item">
         <span class="info-label">Google Maps</span>
         <span class="info-value"
-          >{projectStore.currentProject.config.google_maps.enabled ? "Sí" : "No"}</span
+          >{projectStore.currentProject.config.gmaps.enabled ? "Sí" : "No"}</span
         >
       </div>
       <div class="info-item">

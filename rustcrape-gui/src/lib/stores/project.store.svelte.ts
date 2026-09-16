@@ -17,7 +17,7 @@ import { appStore } from "./app.store.svelte";
 function defaultExecutionConfig(): ExecutionConfig {
   return {
     execution_mode: "Sequential",
-    google_maps: {
+    gmaps: {
       stop_threshold: 3,
       delay_min: 500,
       delay_max: 2000,
@@ -86,16 +86,16 @@ class ProjectStore {
         }
       : { type: "sqlite", path: this.getOrCreateDbPath() };
     return {
-      google_maps: {
+      gmaps: {
         enabled: this.projectDraft.enable_google_maps,
         search_query: this.projectDraft.search_query,
         zoom: this.projectDraft.zoom,
-        stop_threshold: this.executionConfig.google_maps.stop_threshold,
-        delay_min: this.executionConfig.google_maps.delay_min,
-        delay_max: this.executionConfig.google_maps.delay_max,
-        headless: this.executionConfig.google_maps.headless,
-        rate_limit: this.executionConfig.google_maps.rate_limit,
-        iterations: this.executionConfig.google_maps.iterations,
+        stop_threshold: this.executionConfig.gmaps.stop_threshold,
+        delay_min: this.executionConfig.gmaps.delay_min,
+        delay_max: this.executionConfig.gmaps.delay_max,
+        headless: this.executionConfig.gmaps.headless,
+        rate_limit: this.executionConfig.gmaps.rate_limit,
+        iterations: this.executionConfig.gmaps.iterations,
       },
       empresite: {
         enabled: this.projectDraft.enable_empresite,
@@ -123,13 +123,13 @@ class ProjectStore {
     const c = project.config;
     this.executionConfig = {
       execution_mode: c.execution_mode,
-      google_maps: {
-        stop_threshold: c.google_maps.stop_threshold,
-        delay_min: c.google_maps.delay_min,
-        delay_max: c.google_maps.delay_max,
-        headless: c.google_maps.headless,
-        rate_limit: c.google_maps.rate_limit,
-        iterations: c.google_maps.iterations,
+      gmaps: {
+        stop_threshold: c.gmaps.stop_threshold,
+        delay_min: c.gmaps.delay_min,
+        delay_max: c.gmaps.delay_max,
+        headless: c.gmaps.headless,
+        rate_limit: c.gmaps.rate_limit,
+        iterations: c.gmaps.iterations,
       },
       empresite: {
         delay_min: c.empresite.delay_min,
@@ -145,10 +145,10 @@ class ProjectStore {
     const useMysql = isMysql(db);
     this.projectDraft = {
       name: project.name,
-      enable_google_maps: c.google_maps.enabled,
+      enable_google_maps: c.gmaps.enabled,
       enable_empresite: c.empresite.enabled,
-      search_query: c.google_maps.search_query,
-      zoom: c.google_maps.zoom,
+      search_query: c.gmaps.search_query,
+      zoom: c.gmaps.zoom,
       use_mysql: useMysql,
       db_host: useMysql ? db.host : "localhost",
       db_port: useMysql ? db.port : 3306,

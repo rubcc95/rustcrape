@@ -37,7 +37,7 @@ export function isSqlite(db: DbConfig): db is { type: "sqlite"; path?: string | 
 }
 
 export interface Config {
-  google_maps: GoogleMapsConfig;
+  gmaps: GoogleMapsConfig;
   empresite: EmpresiteConfig;
   execution_mode: ExecutionMode;
   db: DbConfig;
@@ -105,7 +105,7 @@ export interface EmpresiteExecutionConfig {
 
 export interface ExecutionConfig {
   execution_mode: ExecutionMode;
-  google_maps: GmapsExecutionConfig;
+  gmaps: GmapsExecutionConfig;
   empresite: EmpresiteExecutionConfig;
   use_vpn: boolean;
   ip_rotation_frequency: number;

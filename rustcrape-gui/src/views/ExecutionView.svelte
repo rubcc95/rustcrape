@@ -21,23 +21,23 @@
           <div class="config-row">
             <span class="config-label">Google Maps</span>
             <span class="config-value"
-              >{executionStore.configSnapshot.google_maps.enabled
+              >{executionStore.configSnapshot.gmaps.enabled
                 ? "Sí"
                 : "No"}</span
             >
           </div>
-          {#if executionStore.configSnapshot.google_maps.enabled}
+          {#if executionStore.configSnapshot.gmaps.enabled}
             <div class="config-row">
               <span class="config-label">Delay Maps</span>
               <span class="config-value"
-                >{executionStore.configSnapshot.google_maps.delay_min}ms -
-                {executionStore.configSnapshot.google_maps.delay_max}ms</span
+                >{executionStore.configSnapshot.gmaps.delay_min}ms -
+                {executionStore.configSnapshot.gmaps.delay_max}ms</span
               >
             </div>
             <div class="config-row">
               <span class="config-label">Stop threshold</span>
               <span class="config-value"
-                >{executionStore.configSnapshot.google_maps.stop_threshold}</span
+                >{executionStore.configSnapshot.gmaps.stop_threshold}</span
               >
             </div>
           {/if}

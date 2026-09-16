@@ -457,8 +457,12 @@ pub async fn scrape(
     config: &Config,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
+    verboser.opening_browser(&format!("({}, {})", params.lat, params.lng));
     let mut instance = Browser::gmaps(config).await?;
+    
     let scrape = scrape_internal(&instance, params, config, verboser).await;
+    
+    verboser.closing_browser();
     instance.close().await?;
     scrape
 } 
@@ -469,7 +473,6 @@ async fn scrape_internal(
     config: &Config,
     verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
-    verboser.opening_browser("");
     let url = format!(
         "https://www.google.com/maps/search/{}/@{},{},{}z",
         config.gmaps.search_query, params.lat, params.lng, config.gmaps.zoom
