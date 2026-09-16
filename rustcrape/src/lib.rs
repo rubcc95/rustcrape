@@ -55,7 +55,7 @@ mod utils {
                 return Ok(value);
             }
             if start.elapsed() >= timeout {
-                return Err(anyhow::anyhow!("wait_until agotó el tiempo"));
+                return Err(WaitUntilTimeoutError);
             }
             tokio::time::sleep(interval).await;
         }
