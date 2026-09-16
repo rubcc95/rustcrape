@@ -1,27 +1,54 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetUserAgentOverrideParams, UserAgentBrandVersion, UserAgentMetadata,
+};
 use chromiumoxide::handler::viewport::Viewport;
-use chromiumoxide::{Browser as COxideBrowser, BrowserConfig};
+use chromiumoxide::{Browser as COxideBrowser, BrowserConfig, Page};
 use futures::StreamExt;
 use rand::Rng;
 
 use crate::types::Config;
 
-const USER_AGENTS: &[&str] = &[
-    // Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
-    // Linux
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
-    // macOS
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+/// Versiones de Chrome usadas para construir un User-Agent y sus Client Hints
+/// (`Sec-CH-UA`) coherentes entre si. Solo Windows, porque la huella real del
+/// equipo (WebGL, fuentes, resolucion) es la de una maquina Windows: simular
+/// Linux/macOS delataria la incoherencia.
+const CHROME_VERSIONS: &[(&str, &str)] = &[
+    ("131.0.6778.140", "131"),
+    ("130.0.6723.117", "130"),
+    ("132.0.6834.84", "132"),
 ];
+
+fn build_user_agent(major: &str) -> String {
+    format!(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36",
+        major
+    )
+}
+
+fn build_user_agent_metadata(full: &str, major: &str) -> UserAgentMetadata {
+    UserAgentMetadata::builder()
+        .brands([
+            UserAgentBrandVersion::new("Chromium", major),
+            UserAgentBrandVersion::new("Google Chrome", major),
+            UserAgentBrandVersion::new("Not_A Brand", "24"),
+        ])
+        .full_version_lists([
+            UserAgentBrandVersion::new("Chromium", full),
+            UserAgentBrandVersion::new("Google Chrome", full),
+            UserAgentBrandVersion::new("Not_A Brand", "24.0.0.0"),
+        ])
+        .platform("Windows")
+        .platform_version("10.0.0")
+        .architecture("x86")
+        .model("")
+        .mobile(false)
+        .bitness("64")
+        .build()
+        .expect("metadata de User-Agent siempre valido")
+}
 
 const VIEWPORTS: &[(u32, u32)] = &[
     (1366, 768),
@@ -132,6 +159,8 @@ fn find_browser() -> Option<PathBuf> {
 // }
 pub struct Browser {
     browser: COxideBrowser,
+    user_agent: String,
+    user_agent_metadata: UserAgentMetadata,
 }
 
 impl Browser {
@@ -142,7 +171,9 @@ impl Browser {
     ) -> Result<Self> {
         let idx = rand_range(0, VIEWPORTS.len() - 1);
         let (width, height) = VIEWPORTS[idx];
-        let user_agent = USER_AGENTS[rand_range(0, USER_AGENTS.len() - 1)];
+        let (full, major) = CHROME_VERSIONS[rand_range(0, CHROME_VERSIONS.len() - 1)];
+        let user_agent = build_user_agent(major);
+        let user_agent_metadata = build_user_agent_metadata(full, major);
 
         let mut builder = BrowserConfig::builder()
             .viewport(Viewport {
@@ -150,11 +181,12 @@ impl Browser {
                 height,
                 ..Default::default()
             })
-            .arg(("user-agent", user_agent))
+            .window_size(width, height)
             .hide();
 
-        // Perfil persistente: conserva cookies (reCAPTCHA, consentimiento) entre
-        // tareas para reducir la aparicion de captchas.
+        // Perfil persistente: conserva cookies entre lanzamientos. Para rotar de
+        // IP hay que usar un perfil efimero (empresite_fresh), porque reutilizar
+        // cookies marcadas con una IP distinta delata el cambio.
         if let Some(dir) = profile_dir {
             std::fs::create_dir_all(dir).ok();
             builder = builder.user_data_dir(dir);
@@ -201,20 +233,60 @@ impl Browser {
             }
         });
 
-        Ok(Self { browser })
+        Ok(Self {
+            browser,
+            user_agent,
+            user_agent_metadata,
+        })
+    }
+
+    /// Directorio raiz de los perfiles persistentes de Chrome.
+    fn profile_root(config: &Config) -> PathBuf {
+        match config.browser_profile_dir.as_deref() {
+            Some(dir) => Path::new(dir).join("rustcrape-profiles"),
+            None => std::env::temp_dir().join("rustcrape-profiles"),
+        }
+    }
+
+    /// Abre una pagina aplicando antes el User-Agent (y sus Client Hints)
+    /// elegidos para esta sesion. Se crea en `about:blank` para poder inyectar
+    /// la anulacion de UA antes de emitir la primera peticion de red.
+    pub async fn new_page(&self, url: impl Into<String>) -> Result<Page> {
+        let page = self.browser.new_page("about:blank").await?;
+
+        let params = SetUserAgentOverrideParams::builder()
+            .user_agent(self.user_agent.clone())
+            .user_agent_metadata(self.user_agent_metadata.clone())
+            .build()
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        page.execute(params).await?;
+
+        page.goto(url).await?;
+        Ok(page)
     }
 
     pub async fn empresite(config: &Config) -> Result<Self> {
         Ok(Self::new(
             config.empresite.headless,
-            config.browser_path.as_deref().map(std::path::Path::new),
-            Some(
-                &match config.browser_profile_dir.as_deref() {
-                    Some(dir) => Path::new(dir).join("rustcrape-profiles"),
-                    None => std::env::temp_dir().join("rustcrape-profiles"),
-                }
-                .join("empresite"),
-            ),
+            config.browser_path.as_deref().map(Path::new),
+            Some(&Self::profile_root(config).join("empresite")),
+        )
+        .await?)
+    }
+
+    /// Variante con perfil efimero, usada tras rotar la IP: no arrastra cookies
+    /// de reCAPTCHA (`rc::c`/`_GRECAPTCHA`) que correlacionarian la sesion
+    /// anterior con la nueva direccion.
+    pub async fn empresite_fresh(config: &Config) -> Result<Self> {
+        let fresh = Self::profile_root(config).join(format!(
+            "empresite-fresh-{}-{}",
+            std::process::id(),
+            rand_range(0, 1_000_000)
+        ));
+        Ok(Self::new(
+            config.empresite.headless,
+            config.browser_path.as_deref().map(Path::new),
+            Some(&fresh),
         )
         .await?)
     }
@@ -222,14 +294,8 @@ impl Browser {
     pub async fn gmaps(config: &Config) -> Result<Self> {
         Ok(Self::new(
             config.gmaps.headless,
-            config.browser_path.as_deref().map(std::path::Path::new),
-            Some(
-                &match config.browser_profile_dir.as_deref() {
-                    Some(dir) => Path::new(dir).join("rustcrape-profiles"),
-                    None => std::env::temp_dir().join("rustcrape-profiles"),
-                }
-                .join("gmaps"),
-            ),
+            config.browser_path.as_deref().map(Path::new),
+            Some(&Self::profile_root(config).join("gmaps")),
         )
         .await?)
     }

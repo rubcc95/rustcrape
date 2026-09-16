@@ -295,7 +295,7 @@ where
         let url = page.url().await?.unwrap();
 
         browser.close().await?;
-        *browser = Browser::empresite(config).await?;
+        *browser = Browser::empresite_fresh(config).await?;
         *page = browser.new_page(url).await?;
 
         loop {
