@@ -562,6 +562,7 @@ async fn scrape_detail(
         let raw = extract_detail(&page).await?;
 
         if raw.name.is_empty() {
+            page.close().await?;
             return Ok((browser, DetailOutcome::Skipped));
         }
 
@@ -571,6 +572,7 @@ async fn scrape_detail(
 
         verboser.processed_coincidence(&raw.name, count);
 
+        page.close().await?;
         return Ok((
             browser,
             DetailOutcome::Found(Coincidence {
@@ -614,7 +616,7 @@ pub async fn scrape(
     let mut browser = Browser::empresite(config).await?;
     let mut page = browser.new_page(&url).await?;
 
-    let _ = page.wait_for_navigation().await;
+    page.wait_for_navigation().await?;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     verboser.accepting_cookies();
