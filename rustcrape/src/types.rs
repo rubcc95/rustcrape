@@ -147,8 +147,7 @@ impl From<LegacyConfig> for Config {
                 delay_min: 500,
                 delay_max: 2000,
                 headless: false,
-                rate_limit: None,
-                iterations: None,
+                ..Default::default()
             },
             execution_mode: ExecutionMode::Sequential,
             db: legacy.db,
@@ -195,7 +194,7 @@ pub struct GMapsConfig {
     pub iterations: Option<NonZeroU32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EmpresiteConfig {
     pub enabled: bool,
     /// Termino de busqueda (se comparte con Google Maps).
@@ -209,6 +208,165 @@ pub struct EmpresiteConfig {
     /// Numero maximo de tareas a procesar (para pruebas).
     #[serde(with = "zero_is_none")]
     pub iterations: Option<NonZeroU32>,
+    // --- Filtros del listado (`Incluyen siguientes datos`) ---
+    /// Empresas que incluyen web.
+    #[serde(default)]
+    pub web: bool,
+    /// Empresas que incluyen telefono.
+    #[serde(default)]
+    pub phone: bool,
+    /// Empresas que incluyen email.
+    #[serde(default)]
+    pub email: bool,
+    /// Empresas con ubicacion registrada.
+    #[serde(default)]
+    pub location: bool,
+    /// Empresas con sucursales.
+    #[serde(default)]
+    pub branch: bool,
+    /// Tamano por facturacion.
+    pub company_size: Option<CompanySize>,
+    /// Rango de numero de empleados.
+    pub employees: Option<EmployeeRange>,
+    /// Fecha de constitucion.
+    pub incorporation_date: Option<IncorporationDate>,
+    /// Forma juridica.
+    pub legal_form: Option<LegalForm>,
+}
+
+impl EmpresiteConfig {
+    /// Construye la cadena de filtros activos lista para la URL (sin el
+    /// prefijo `?`). Devuelve cadena vacia si no hay ningun filtro.
+    pub fn filter_query(&self) -> String {
+        let mut params: Vec<String> = Vec::new();
+
+        if self.web {
+            params.push("emp_web=true".to_string());
+        }
+        if self.phone {
+            params.push("emp_telefono=true".to_string());
+        }
+        if self.email {
+            params.push("emp_email=true".to_string());
+        }
+        if self.location {
+            params.push("municipio=true".to_string());
+        }
+        if self.branch {
+            params.push("numSucursales=true".to_string());
+        }
+        if let Some(size) = self.company_size {
+            params.push(format!("emp_ventas_number={}", size.query_value()));
+        }
+        if let Some(employees) = self.employees {
+            params.push(format!("emp_empleados_number={}", employees.query_value()));
+        }
+        if let Some(date) = self.incorporation_date {
+            params.push(format!("fecha_constitucion={}", date.query_value()));
+        }
+        if let Some(form) = self.legal_form {
+            params.push(format!("emp_formajuridica={}", form.query_value()));
+        }
+
+        params.join("&")
+    }
+}
+
+/// Tamano de empresa por facturacion (filtro del listado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompanySize {
+    Small,
+    Medium,
+    Large,
+    Corporate,
+}
+
+impl CompanySize {
+    /// Valor del parametro `emp_ventas_number`.
+    pub fn query_value(self) -> &'static str {
+        match self {
+            CompanySize::Small => "pequenas",
+            CompanySize::Medium => "medianas",
+            CompanySize::Large => "grandes",
+            CompanySize::Corporate => "corporativas",
+        }
+    }
+}
+
+/// Fecha de constitucion de la empresa (filtro del listado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IncorporationDate {
+    LastMonth,
+    LastThreeMonths,
+    LastYear,
+    MoreThanAYear,
+}
+
+impl IncorporationDate {
+    /// Valor del parametro `fecha_constitucion`.
+    pub fn query_value(self) -> &'static str {
+        match self {
+            IncorporationDate::LastMonth => "1m",
+            IncorporationDate::LastThreeMonths => "3m",
+            IncorporationDate::LastYear => "1a",
+            IncorporationDate::MoreThanAYear => "1adesde",
+        }
+    }
+}
+
+/// Forma juridica de la empresa (filtro del listado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LegalForm {
+    LimitedLiabilityCompany,
+    CommunityOfProperty,
+    CivilPartnership,
+    PublicLimitedCompany,
+    TemporaryJointVenture,
+    Cooperative,
+    PublicBody,
+    LocalCorporation,
+    PublicAdministration,
+    ForeignEntity,
+}
+
+impl LegalForm {
+    /// Valor del parametro `emp_formajuridica`.
+    pub fn query_value(self) -> &'static str {
+        match self {
+            LegalForm::LimitedLiabilityCompany => "B",
+            LegalForm::CommunityOfProperty => "E",
+            LegalForm::CivilPartnership => "J",
+            LegalForm::PublicLimitedCompany => "A",
+            LegalForm::TemporaryJointVenture => "U",
+            LegalForm::Cooperative => "F",
+            LegalForm::PublicBody => "Q",
+            LegalForm::LocalCorporation => "P",
+            LegalForm::PublicAdministration => "S",
+            LegalForm::ForeignEntity => "N",
+        }
+    }
+}
+
+/// Rango de numero de empleados (filtro del listado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmployeeRange {
+    pub min: u32,
+    pub max: u32,
+}
+
+impl EmployeeRange {
+    /// Valor del parametro `emp_empleados_number`: `min-max`, o solo `min`
+    /// cuando ambos extremos coinciden.
+    pub fn query_value(self) -> String {
+        if self.min == self.max {
+            self.min.to_string()
+        } else {
+            format!("{}-{}", self.min, self.max)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

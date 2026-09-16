@@ -4,7 +4,7 @@ use serde::Deserialize;
 use crate::browser::Browser;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
-use crate::types::{Coincidence, Config};
+use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::*;
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
@@ -56,13 +56,18 @@ async fn extract_company_links(page: &Page) -> Result<Vec<String>> {
 }
 
 /// Comprueba si existe un enlace de paginacion a la pagina siguiente.
+///
+/// Sin filtros el numero de pagina viaja en el `href`; con filtros la
+/// paginacion usa enlaces `javascript:void(0)` y la URL (con los filtros)
+/// queda en el atributo `onclick`, asi que se revisan ambos.
 async fn has_next_page(page: &Page, current: u32) -> Result<bool> {
     let needle = format!("PgNum-{}/", current + 1);
     let js = format!(
         r#"(() => {{
             const needle = "{}";
-            for (const a of document.querySelectorAll('a[href]')) {{
-                if ((a.getAttribute('href') || '').includes(needle)) return true;
+            for (const a of document.querySelectorAll('a')) {{
+                const hay = (a.getAttribute('href') || '') + ' ' + (a.getAttribute('onclick') || '');
+                if (hay.includes(needle)) return true;
             }}
             return false;
         }})()"#,
@@ -582,6 +587,24 @@ async fn scrape_detail(
     ))
 }
 
+/// Genera la URL del listado para una pagina concreta anexando los filtros
+/// configurados. Si hay al menos un filtro se anade el flag `testfiltros=1`,
+/// que activa el modo filtrado del endpoint.
+fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
+    let base = if page <= 1 {
+        format!("https://empresite.eleconomista.es/Actividad/{activity}/")
+    } else {
+        format!("https://empresite.eleconomista.es/Actividad/{activity}/PgNum-{page}/")
+    };
+
+    let filters = cfg.filter_query();
+    if filters.is_empty() {
+        base
+    } else {
+        format!("{base}?testfiltros=1&{filters}")
+    }
+}
+
 /// Scrapea una pagina del listado de Empresite: extrae los enlaces a las fichas
 /// y, para cada una, abre su detalle y registra los datos de contacto.
 pub async fn scrape_internal(
@@ -594,14 +617,7 @@ pub async fn scrape_internal(
     verboser.searching_coincidences();
 
     let activity = activity_slug(&config.empresite.search_query);
-    let url = if params.page <= 1 {
-        format!("https://empresite.eleconomista.es/Actividad/{activity}/")
-    } else {
-        format!(
-            "https://empresite.eleconomista.es/Actividad/{activity}/PgNum-{}/",
-            params.page
-        )
-    };
+    let url = listing_url(&activity, params.page, &config.empresite);
 
     let mut page = browser.new_page(&url).await?;
 
@@ -745,5 +761,50 @@ mod tests {
     #[test]
     fn test_activity_slug_mantiene_guion_y_bajo() {
         assert_eq!(activity_slug("auto_escuela-test"), "AUTO_ESCUELA-TEST");
+    }
+
+    #[test]
+    fn test_listing_url_no_filters() {
+        let cfg = EmpresiteConfig::default();
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/"
+        );
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 3, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/PgNum-3/"
+        );
+    }
+
+    #[test]
+    fn test_listing_url_with_filters() {
+        use crate::types::{CompanySize, EmployeeRange, IncorporationDate, LegalForm};
+
+        let cfg = EmpresiteConfig {
+            web: true,
+            phone: true,
+            email: true,
+            location: true,
+            branch: true,
+            company_size: Some(CompanySize::Corporate),
+            employees: Some(EmployeeRange { min: 10, max: 50 }),
+            incorporation_date: Some(IncorporationDate::LastYear),
+            legal_form: Some(LegalForm::LimitedLiabilityCompany),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/PgNum-2/\
+             ?testfiltros=1&emp_web=true&emp_telefono=true&emp_email=true&municipio=true&\
+             numSucursales=true&emp_ventas_number=corporativas&emp_empleados_number=10-50&\
+             fecha_constitucion=1a&emp_formajuridica=B"
+        );
+    }
+
+    #[test]
+    fn test_employee_range_single_value() {
+        let range = crate::types::EmployeeRange { min: 25, max: 25 };
+        assert_eq!(range.query_value(), "25");
     }
 }

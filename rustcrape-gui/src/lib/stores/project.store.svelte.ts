@@ -4,6 +4,7 @@ import type {
   ProjectDraft,
   Config,
   DbConfig,
+  EmpresiteFilters,
 } from "../types";
 import {
   listConfigs,
@@ -37,6 +38,22 @@ function defaultExecutionConfig(): ExecutionConfig {
   };
 }
 
+function defaultEmpresiteFilters(): EmpresiteFilters {
+  return {
+    web: false,
+    phone: false,
+    email: false,
+    location: false,
+    branch: false,
+    company_size: null,
+    employees_enabled: false,
+    employees_min: 0,
+    employees_max: 100,
+    incorporation_date: null,
+    legal_form: null,
+  };
+}
+
 function defaultProjectDraft(): ProjectDraft {
   return {
     name: "",
@@ -44,6 +61,7 @@ function defaultProjectDraft(): ProjectDraft {
     enable_empresite: false,
     search_query: "",
     zoom: 12,
+    empresite_filters: defaultEmpresiteFilters(),
     use_mysql: false,
     db_host: "localhost",
     db_port: 3306,
@@ -75,6 +93,7 @@ class ProjectStore {
 
   buildConfig(): Config {
     const gs = appStore.globalSettings;
+    const ef = this.projectDraft.empresite_filters;
     const db: DbConfig = this.projectDraft.use_mysql
       ? {
           type: "mysql",
@@ -105,6 +124,17 @@ class ProjectStore {
         headless: this.executionConfig.empresite.headless,
         rate_limit: this.executionConfig.empresite.rate_limit,
         iterations: this.executionConfig.empresite.iterations,
+        web: ef.web,
+        phone: ef.phone,
+        email: ef.email,
+        location: ef.location,
+        branch: ef.branch,
+        company_size: ef.company_size,
+        employees: ef.employees_enabled
+          ? { min: ef.employees_min, max: ef.employees_max }
+          : null,
+        incorporation_date: ef.incorporation_date,
+        legal_form: ef.legal_form,
       },
       execution_mode: this.executionConfig.execution_mode,
       db,
@@ -149,6 +179,19 @@ class ProjectStore {
       enable_empresite: c.empresite.enabled,
       search_query: c.gmaps.search_query,
       zoom: c.gmaps.zoom,
+      empresite_filters: {
+        web: c.empresite.web ?? false,
+        phone: c.empresite.phone ?? false,
+        email: c.empresite.email ?? false,
+        location: c.empresite.location ?? false,
+        branch: c.empresite.branch ?? false,
+        company_size: c.empresite.company_size ?? null,
+        employees_enabled: c.empresite.employees != null,
+        employees_min: c.empresite.employees?.min ?? 0,
+        employees_max: c.empresite.employees?.max ?? 100,
+        incorporation_date: c.empresite.incorporation_date ?? null,
+        legal_form: c.empresite.legal_form ?? null,
+      },
       use_mysql: useMysql,
       db_host: useMysql ? db.host : "localhost",
       db_port: useMysql ? db.port : 3306,

@@ -237,8 +237,8 @@ mod tests {
                 delay_min: 500,
                 delay_max: 2000,
                 headless: false,
-                rate_limit: None,
                 iterations: Some(std::num::NonZeroU32::new(1).unwrap()),
+                ..Default::default()
             },
             execution_mode: ExecutionMode::Sequential,
             db: DbConfig::Sqlite { path: None },

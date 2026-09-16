@@ -1,6 +1,26 @@
 <script lang="ts">
   import { projectStore } from "../lib/stores/project.store.svelte";
   import NumberInput from "./NumberInput.svelte";
+  import Checkbox from "./Checkbox.svelte";
+  import type { CompanySize, IncorporationDate, LegalForm } from "../lib/types";
+
+  function onCompanySizeChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    projectStore.projectDraft.empresite_filters.company_size =
+      value === "" ? null : (value as CompanySize);
+  }
+
+  function onIncorporationDateChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    projectStore.projectDraft.empresite_filters.incorporation_date =
+      value === "" ? null : (value as IncorporationDate);
+  }
+
+  function onLegalFormChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    projectStore.projectDraft.empresite_filters.legal_form =
+      value === "" ? null : (value as LegalForm);
+  }
 </script>
 
 <div class="panel">
@@ -21,41 +41,15 @@
 <div class="panel">
   <h4>Objetivos</h4>
 
-  <div class="toggle-row">
-    <div
-      class="check-track"
-      class:checked={projectStore.projectDraft.enable_google_maps}
-      role="checkbox"
-      aria-checked={projectStore.projectDraft.enable_google_maps}
-      aria-label="Google Maps"
-      tabindex="0"
-      onclick={() => projectStore.projectDraft.enable_google_maps = !projectStore.projectDraft.enable_google_maps}
-      onkeydown={(e) => e.key === 'Enter' && (projectStore.projectDraft.enable_google_maps = !projectStore.projectDraft.enable_google_maps)}
-    >
-      <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
-        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
-      </svg>
-    </div>
-    <span class="toggle-label">Google Maps</span>
-  </div>
+  <Checkbox
+    bind:value={projectStore.projectDraft.enable_google_maps}
+    label="Google Maps"
+  />
 
-  <div class="toggle-row">
-    <div
-      class="check-track"
-      class:checked={projectStore.projectDraft.enable_empresite}
-      role="checkbox"
-      aria-checked={projectStore.projectDraft.enable_empresite}
-      aria-label="Empresite"
-      tabindex="0"
-      onclick={() => projectStore.projectDraft.enable_empresite = !projectStore.projectDraft.enable_empresite}
-      onkeydown={(e) => e.key === 'Enter' && (projectStore.projectDraft.enable_empresite = !projectStore.projectDraft.enable_empresite)}
-    >
-      <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
-        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
-      </svg>
-    </div>
-    <span class="toggle-label">Empresite (eleconomista)</span>
-  </div>
+  <Checkbox
+    bind:value={projectStore.projectDraft.enable_empresite}
+    label="Empresite (eleconomista)"
+  />
 </div>
 
 <div class="panel">
@@ -82,29 +76,124 @@
     </div>
   {/if}
 
+  {#if projectStore.projectDraft.enable_empresite}
+    <div class="filter-group">
+      <span class="filter-title">Filtros del listado (Empresite)</span>
+
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.web}
+        label="Web"
+      />
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.phone}
+        label="Teléfono"
+      />
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.email}
+        label="Email"
+      />
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.location}
+        label="Ubicación"
+      />
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.branch}
+        label="Sucursal"
+      />
+
+      <div class="field-row">
+        <div class="field">
+          <label for="emp-company-size">Tamaño de empresa</label>
+          <select
+            id="emp-company-size"
+            value={projectStore.projectDraft.empresite_filters.company_size ?? ""}
+            onchange={onCompanySizeChange}
+          >
+            <option value="">Cualquiera</option>
+            <option value="small">Pequeña empresa</option>
+            <option value="medium">Mediana empresa</option>
+            <option value="large">Gran empresa</option>
+            <option value="corporate">Corporativa</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="emp-incorporation-date">Fecha de creación</label>
+          <select
+            id="emp-incorporation-date"
+            value={projectStore.projectDraft.empresite_filters.incorporation_date ??
+              ""}
+            onchange={onIncorporationDateChange}
+          >
+            <option value="">Cualquiera</option>
+            <option value="last_month">Último mes</option>
+            <option value="last_three_months">Últimos 3 meses</option>
+            <option value="last_year">Último año</option>
+            <option value="more_than_a_year">Más de un año</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="emp-legal-form">Forma jurídica</label>
+        <select
+          id="emp-legal-form"
+          value={projectStore.projectDraft.empresite_filters.legal_form ?? ""}
+          onchange={onLegalFormChange}
+        >
+          <option value="">Cualquiera</option>
+          <option value="limited_liability_company">Sociedad Limitada</option>
+          <option value="community_of_property">Comunidad de Bienes</option>
+          <option value="civil_partnership">Sociedad Civil</option>
+          <option value="public_limited_company">Sociedad Anónima</option>
+          <option value="temporary_joint_venture"
+            >Unión Temporal de Empresas</option
+          >
+          <option value="cooperative">Cooperativa</option>
+          <option value="public_body">Organismo Público</option>
+          <option value="local_corporation">Corporación Local</option>
+          <option value="public_administration"
+            >Admón. del Estado y CCAA</option
+          >
+          <option value="foreign_entity">Entidad Extranjera no Residente</option
+          >
+        </select>
+      </div>
+
+      <Checkbox
+        bind:value={projectStore.projectDraft.empresite_filters.employees_enabled}
+        label="Nº de empleados"
+      />
+      {#if projectStore.projectDraft.empresite_filters.employees_enabled}
+        <div class="field-row">
+          <NumberInput
+            label="Mínimo"
+            id="emp-employees-min"
+            min={0}
+            max={100}
+            bind:value={projectStore.projectDraft.empresite_filters.employees_min}
+          />
+          <NumberInput
+            label="Máximo"
+            id="emp-employees-max"
+            min={0}
+            max={100}
+            bind:value={projectStore.projectDraft.empresite_filters.employees_max}
+          />
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <p class="hint">El término se usa para buscar en las webs seleccionadas.</p>
 </div>
 
 <div class="panel">
   <h4>Base de datos</h4>
 
-  <div class="toggle-row">
-    <div
-      class="check-track"
-      class:checked={projectStore.projectDraft.use_mysql}
-      role="checkbox"
-      aria-checked={projectStore.projectDraft.use_mysql}
-      aria-label="Usar MySQL"
-      tabindex="0"
-      onclick={() => projectStore.projectDraft.use_mysql = !projectStore.projectDraft.use_mysql}
-      onkeydown={(e) => e.key === 'Enter' && (projectStore.projectDraft.use_mysql = !projectStore.projectDraft.use_mysql)}
-    >
-      <svg class="check-mark" viewBox="0 0 24 24" width="18" height="18">
-        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor" />
-      </svg>
-    </div>
-    <span class="toggle-label">Usar MySQL (avanzado)</span>
-  </div>
+  <Checkbox
+    bind:value={projectStore.projectDraft.use_mysql}
+    label="Usar MySQL (avanzado)"
+  />
 
   {#if projectStore.projectDraft.use_mysql}
     <div class="field">
@@ -190,61 +279,44 @@
     flex: 1;
   }
 
+  .field select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border, #2a3a5c);
+    border-radius: 6px;
+    background: var(--bg, #1a1a2e);
+    color: var(--text, #e0e0e0);
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .field select:focus {
+    border-color: var(--primary, #4f8cff);
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border, #2a3a5c);
+  }
+
+  .filter-title {
+    font-size: 11px;
+    color: var(--text-muted, #8892b0);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
   label {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-muted, #8892b0);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .toggle-label {
-    font-size: 13px;
-    color: var(--text, #e0e0e0);
-    text-transform: none;
-    letter-spacing: normal;
-    font-weight: 400;
-  }
-
-  .check-track {
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--border, #2a3a5c);
-    border-radius: 6px;
-    background: var(--bg);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .check-track:hover {
-    border-color: var(--text-muted, #8892b0);
-  }
-
-  .check-track.checked {
-    background: var(--primary, #4f8cff);
-    border-color: var(--primary, #4f8cff);
-  }
-
-  .check-mark {
-    color: #fff;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: opacity 0.15s, transform 0.15s;
-  }
-
-  .check-track.checked .check-mark {
-    opacity: 1;
-    transform: scale(1);
   }
 
   .hint {

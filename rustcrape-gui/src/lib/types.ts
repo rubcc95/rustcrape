@@ -14,6 +14,32 @@ export interface GoogleMapsConfig {
   iterations: number;
 }
 
+export type CompanySize = "small" | "medium" | "large" | "corporate";
+
+export type IncorporationDate =
+  | "last_month"
+  | "last_three_months"
+  | "last_year"
+  | "more_than_a_year";
+
+export type LegalForm =
+  | "limited_liability_company"
+  | "community_of_property"
+  | "civil_partnership"
+  | "public_limited_company"
+  | "temporary_joint_venture"
+  | "cooperative"
+  | "public_body"
+  | "local_corporation"
+  | "public_administration"
+  | "foreign_entity";
+
+export interface EmployeeRange {
+  min: number;
+  max: number;
+}
+
+/** Filtros del listado de Empresite tal como viajan en la configuracion. */
 export interface EmpresiteConfig {
   enabled: boolean;
   search_query: string;
@@ -22,6 +48,30 @@ export interface EmpresiteConfig {
   headless: boolean;
   rate_limit: number;
   iterations: number;
+  web: boolean;
+  phone: boolean;
+  email: boolean;
+  location: boolean;
+  branch: boolean;
+  company_size: CompanySize | null;
+  employees: EmployeeRange | null;
+  incorporation_date: IncorporationDate | null;
+  legal_form: LegalForm | null;
+}
+
+/** Filtros de Empresite en el estado del formulario (rango con bandera). */
+export interface EmpresiteFilters {
+  web: boolean;
+  phone: boolean;
+  email: boolean;
+  location: boolean;
+  branch: boolean;
+  company_size: CompanySize | null;
+  employees_enabled: boolean;
+  employees_min: number;
+  employees_max: number;
+  incorporation_date: IncorporationDate | null;
+  legal_form: LegalForm | null;
 }
 
 export type DbConfig =
@@ -117,6 +167,7 @@ export interface ProjectDraft {
   enable_empresite: boolean;
   search_query: string;
   zoom: number;
+  empresite_filters: EmpresiteFilters;
   use_mysql: boolean;
   db_host: string;
   db_port: number;
