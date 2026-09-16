@@ -32,7 +32,7 @@ struct HttpClient {
 
 impl HttpClient {
     fn new() -> Result<Self> {
-        use reqwest::header::{HeaderName, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT as UA};
+        use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderName, HeaderValue, USER_AGENT as UA};
 
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(UA, HeaderValue::from_static(USER_AGENT));
@@ -42,7 +42,10 @@ impl HttpClient {
                 "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             ),
         );
-        headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("es-ES,es;q=0.9,en;q=0.8"));
+        headers.insert(
+            ACCEPT_LANGUAGE,
+            HeaderValue::from_static("es-ES,es;q=0.9,en;q=0.8"),
+        );
         headers.insert(
             HeaderName::from_static("sec-ch-ua"),
             HeaderValue::from_static(
@@ -66,7 +69,12 @@ impl HttpClient {
         Ok(Self { client })
     }
 
-    async fn fetch_listing(&self, activity: &str, page: u32, cfg: &EmpresiteConfig) -> Result<String> {
+    async fn fetch_listing(
+        &self,
+        activity: &str,
+        page: u32,
+        cfg: &EmpresiteConfig,
+    ) -> Result<String> {
         let url = listing_url(activity, page, cfg);
         // El listado filtrado se sirve mediante un POST (params en la query,
         // cuerpo vacío); sin filtros basta un GET.
@@ -88,7 +96,8 @@ impl HttpClient {
     }
 
     async fn post(&self, url: &str) -> Result<String> {
-        let resp = self.client
+        let resp = self
+            .client
             .post(url)
             .header(
                 reqwest::header::CONTENT_TYPE,
@@ -124,7 +133,9 @@ fn extract_company_links(html: &str) -> Vec<String> {
 
     let mut out: Vec<String> = Vec::new();
     for a in doc.select(&a_sel) {
-        let Some(h) = a.value().attr("href") else { continue };
+        let Some(h) = a.value().attr("href") else {
+            continue;
+        };
         if h.contains("/Actividad/")
             || h.contains("/empresas-provincia")
             || h.contains("/informes-empresas")
@@ -197,7 +208,12 @@ fn extract_detail(html: &str) -> DetailRaw {
         .map(text_of)
         .unwrap_or_default();
 
-    DetailRaw { name, email, web, tfno }
+    DetailRaw {
+        name,
+        email,
+        web,
+        tfno,
+    }
 }
 
 /// Comprueba que la página sea un detalle real de Empresite con sus datos:
@@ -219,9 +235,13 @@ fn is_detail_loaded(html: &str) -> bool {
         .iter()
         .any(|s| doc.select(&sel(s)).next().is_some());
 
-    let has_contact = ["a.email[href^=\"mailto:\"]", "span.tel span.value", "a.url[href]"]
-        .iter()
-        .any(|s| doc.select(&sel(s)).next().is_some());
+    let has_contact = [
+        "a.email[href^=\"mailto:\"]",
+        "span.tel span.value",
+        "a.url[href]",
+    ]
+    .iter()
+    .any(|s| doc.select(&sel(s)).next().is_some());
 
     has_section || has_contact
 }
@@ -340,7 +360,7 @@ async fn scrape_detail(
     let url = absolutize(link);
 
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
-        let html = http.fetch_detail(&url).await?;
+        let Ok(html) = http.fetch_detail(&url).await else { continue; };
 
         if is_blocked(&html) {
             verboser.warn(&format!(
@@ -405,9 +425,12 @@ async fn scrape_internal(
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
     for _ in 0..MAX_LISTING_ATTEMPTS {
-        let html = http
+        let Ok(html) = http
             .fetch_listing(&activity, params.page, &config.empresite)
-            .await?;
+            .await
+        else {
+            continue;
+        };
 
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
@@ -417,7 +440,7 @@ async fn scrape_internal(
                 ));
             }
             continue;
-        }
+        } 
 
         let links = extract_company_links(&html);
         let has_more = has_next_page(&html, params.page);
@@ -566,7 +589,9 @@ mod tests {
     #[test]
     fn test_is_blocked_detecta_429() {
         assert!(is_blocked("<html>Demasiadas peticiones detectadas</html>"));
-        assert!(is_blocked("<iframe src=\"https://www.google.com/recaptcha/api2/anchor\"></iframe>"));
+        assert!(is_blocked(
+            "<iframe src=\"https://www.google.com/recaptcha/api2/anchor\"></iframe>"
+        ));
         assert!(!is_blocked("<html><h1>Ficha de empresa</h1></html>"));
     }
 
@@ -600,7 +625,9 @@ mod tests {
         "#;
         let links = extract_company_links(html);
         assert_eq!(links.len(), 2);
-        assert!(links.contains(&"https://empresite.eleconomista.es/TINTORERIA-NINOT.html".to_string()));
+        assert!(
+            links.contains(&"https://empresite.eleconomista.es/TINTORERIA-NINOT.html".to_string())
+        );
         assert!(links.contains(&"https://empresite.eleconomista.es/TINTOALCA.html".to_string()));
     }
 
