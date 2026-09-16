@@ -55,7 +55,7 @@ mod utils {
                 return Ok(value);
             }
             if start.elapsed() >= timeout {
-                return Err(WaitUntilTimeoutError);
+                return Err(WaitUntilTimeoutError.into());
             }
             tokio::time::sleep(interval).await;
         }
