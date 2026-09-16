@@ -16,34 +16,10 @@ const VPN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// Servicio que devuelve la IP publica de salida.
 const IP_PROBE_URL: &str = "https://api.ipify.org";
 
-const VPN_COUNTRIES: &[&str] = &[
-    "Spain",
-    "France",
-    "Germany",
-    "Italy",
-    "Portugal",
-    "switzerland",
-    "Belgium",
-    "India",
-    "Sweden",
-    "Ireland",
-    "Brazil",
-    "Mexico",
-    "Albania",
-    "Mexico",
-    "Poland",
-    "United States",
-    "South Korea",
-    "Hong Kong",
-    "Singapore",
-    "Austria",
-    "Norway",
-];
-
-fn random_country() -> &'static str {
-    let idx = rand::random::<usize>() % VPN_COUNTRIES.len();
-    VPN_COUNTRIES[idx]
-}
+/// Pais al que se conecta la VPN en cada rotacion. Empresite es un sitio
+/// espanol, asi que salir siempre por Espana resulta mucho menos sospechoso
+/// que saltar a paises aleatorios.
+const VPN_COUNTRY: &str = "Spain";
 /// Consulta la IP publica de salida via `curl`.
 ///
 /// El CLI de NordVPN no expone un comando de estado, asi que se usa la IP de
@@ -102,7 +78,7 @@ impl VpnHandle for UnawaitedVpn<'_> {
 
     async fn connect(&self) -> Result<bool> {
         Command::new(self.0)
-            .args(["-c", "-g", random_country()])
+            .args(["-c", "-g", VPN_COUNTRY])
             .kill_on_drop(true)
             .status()
             .await?;
@@ -138,7 +114,7 @@ impl VpnHandle for AwaitedVpn<'_> {
     async fn connect(&self) -> Result<bool> {
         let prev = public_ip().await?;
         Command::new(self.path)
-            .args(["-c", "-g", random_country()])
+            .args(["-c", "-g", VPN_COUNTRY])
             .kill_on_drop(true)
             .status()
             .await?;
