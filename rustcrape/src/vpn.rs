@@ -236,14 +236,17 @@ impl VpnRotator {
 
     /// Debe llamarse una vez por tarea procesada (por cualquier target).
     pub async fn tick(&self, verboser: &dyn Verboser) -> Result<bool> {
-        if self.force_rotate(verboser).await? {
+        let should_rotate = {
             let mut counter = self.counter.lock().unwrap();
-            *counter = counter.wrapping_add(1);                        
-            Ok(true)
-        } else{
-            verboser.vpn_not_available();
-            Ok(false)
-        }        
+            *counter = counter.wrapping_add(1);
+            self.frequency > 0 && *counter >= self.frequency
+        };
+
+        if !should_rotate {
+            return Ok(false);
+        }
+
+        self.force_rotate(verboser).await
     }
 
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
@@ -255,10 +258,7 @@ impl VpnRotator {
             return Ok(false);
         };
 
-        self.force_rotate_internal(&UnawaitedVpn(path), verboser).await?;
-        *self.counter.lock().unwrap() = 0;
-
-        Ok(true)
+        self.force_rotate_internal(&UnawaitedVpn(path), verboser).await
     }
 
         /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
@@ -270,10 +270,7 @@ impl VpnRotator {
             return Ok(false);
         };
 
-        self.force_rotate_internal(&AwaitedVpn { path: path }, verboser).await?;
-        *self.counter.lock().unwrap() = 0;
-
-        Ok(true)
+        self.force_rotate_internal(&AwaitedVpn { path: path }, verboser).await
     }
 
       /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
