@@ -531,7 +531,7 @@ async fn scrape_detail(
             Duration::from_millis(200),
             Duration::from_secs(7),
         )
-        .await;      
+        .await;
 
         match is_blocked {
             Ok(true) => {
@@ -540,15 +540,23 @@ async fn scrape_detail(
                 })
                 .await?;
             }
-            other => {
-                if let Err(err) = other {
-                    if !err.is::<WaitUntilTimeoutError>() {
-                        return Err(err);
-                    }
+            Ok(false) => {}
+            Err(err) => {
+                if !err.is::<WaitUntilTimeoutError>() {
+                    return Err(err);
                 }
                 page.reload().await?;
+                verboser.warn(&format!(
+                    "Ficha {} no cargo correctamente (intento {}); reabriendo",
+                    link, attempt
+                ));
+                tokio::time::sleep(random_delay(
+                    config.empresite.delay_min,
+                    config.empresite.delay_max,
+                ))
+                .await;
                 continue;
-            }            
+            }
         }
 
         let raw = extract_detail(&page).await?;
@@ -648,14 +656,7 @@ pub async fn scrape(
         if let DetailOutcome::Found(coincidence) = detail {
             coincidences.push(coincidence);
         }
-        // match detail {
-        //     Ok(browser, DetailOutcome::Found(coincidence)) => coincidences.push(coincidence),
-        //     Ok(DetailOutcome::Skipped) => {}
-        //     Err(err) => verboser.warn(&format!("Error extrayendo ficha {}: {}", link, err)),
-        // }
     }
-
-    // Si una ficha quedo bloqueada, reintentar la pagina entera mas tarde.
 
     Ok(ScrapeResult::new(coincidences, has_more))
 }
