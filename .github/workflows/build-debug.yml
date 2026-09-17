@@ -52,13 +52,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app (debug)
-        run: npx tauri build --debug
-
-      - name: Upload installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rustcrape-${{ runner.os }}-debug-installers
-          path: target/debug/bundle/
+        run: npx tauri build --debug --no-bundle
 
       - name: Upload portable binary
         uses: actions/upload-artifact@v4
