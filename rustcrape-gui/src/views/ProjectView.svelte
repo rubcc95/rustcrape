@@ -6,13 +6,11 @@
 </script>
 
 <div class="project-view">
-  <div class="project-section">
     {#if projectStore.isNewProject}
       <UnsavedProjectForm />
     {:else}
       <SavedProjectForm />
     {/if}
-  </div>
    <ExecutionConfig />
 </div>
 
