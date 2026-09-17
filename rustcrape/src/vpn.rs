@@ -8,7 +8,6 @@ use tokio::process::Command;
 
 use crate::context::Context;
 use crate::utils::wait_until;
-use crate::verboser::Verboser;
 
 /// Tiempo maximo a esperar a que la VPN sea realmente usable tras conectar.
 const VPN_READY_TIMEOUT: Duration = Duration::from_secs(45);
@@ -19,9 +18,7 @@ const IP_PROBE_URL: &str = "https://api.ipify.org";
 
 /// Pais al que se conecta la VPN en cada rotacion.
 const VPN_COUNTRIES: &[&str] = &[
-
     "Spain",
-
     "France",
     "Germany",
     "Italy",
@@ -123,7 +120,7 @@ pub struct AwaitedVpn<'path> {
 }
 
 impl VpnHandle for AwaitedVpn<'_> {
-    async fn disconect(&self,  http: &reqwest::Client) -> Result<bool> {
+    async fn disconect(&self, http: &reqwest::Client) -> Result<bool> {
         let prev = public_ip(http).await?;
         Command::new(self.path)
             .arg("-d")
@@ -216,7 +213,7 @@ impl VpnRotator {
         self.force_rotate_internal(&UnawaitedVpn(path), ctx).await
     }
 
-        /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
+    /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
     pub async fn force_rotate_awaited(&self, ctx: &Context) -> Result<bool> {
@@ -225,10 +222,11 @@ impl VpnRotator {
             return Ok(false);
         };
 
-        self.force_rotate_internal(&AwaitedVpn { path: path }, ctx).await
+        self.force_rotate_internal(&AwaitedVpn { path: path }, ctx)
+            .await
     }
 
-      /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
+    /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
     async fn force_rotate_internal(&self, handle: &impl VpnHandle, ctx: &Context) -> Result<bool> {
