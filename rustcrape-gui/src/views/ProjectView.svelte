@@ -2,7 +2,7 @@
   import { projectStore } from "../lib/stores/project.store.svelte";
   import ExecutionConfig from "../components/ExecutionConfig.svelte";
   import UnsavedProjectForm from "../components/UnsavedProjectForm.svelte";
-  import SavedProjectInfo from "../components/SavedProjectInfo.svelte";
+  import SavedProjectForm from "../components/SavedProjectForm.svelte";
 </script>
 
 <div class="project-view">
@@ -10,7 +10,7 @@
     {#if projectStore.isNewProject}
       <UnsavedProjectForm />
     {:else}
-      <SavedProjectInfo />
+      <SavedProjectForm />
     {/if}
   </div>
    <ExecutionConfig />
