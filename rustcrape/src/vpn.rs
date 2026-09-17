@@ -48,53 +48,34 @@ fn random_country() -> &'static str {
 /// Consulta la IP publica de salida mediante `reqwest`.
 ///
 /// El CLI de NordVPN no expone un comando de estado, asi que se usa la IP de
-/// salida como senal observable de que el trafico ya sale por el nuevo tunel.
+/// salida como señal observable de que el tráfico ya sale por el nuevo túnel.
 async fn public_ip(client: &reqwest::Client) -> Result<String> {
-    let body = client
-        .get(IP_PROBE_URL)
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-
-    Ok(body.trim().to_string())
+    wait_until(
+        || async {
+            match client
+                .get(IP_PROBE_URL)
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+            {
+                Ok(res) => Ok(Some(
+                    res.error_for_status()?.text().await?.trim().to_string(),
+                )),
+                Err(err) => {
+                    if err.is_connect() || err.is_dns() || err.is_timeout() {
+                        Ok(None)
+                    } else {
+                        Err(err.into())
+                    }
+                }
+            }
+        },
+        Duration::from_millis(300),
+        Duration::from_secs(5),
+    )
+    .await
 }
 
-#[allow(async_fn_in_trait)]
-trait VpnHandle {
-    async fn disconect(&self, http: &reqwest::Client) -> Result<()>;
-    async fn connect(&self, http: &reqwest::Client) -> Result<()>;
-}
-
-struct UnawaitedVpn<'a>(&'a Path);
-
-impl VpnHandle for UnawaitedVpn<'_> {
-    async fn disconect(&self, _: &reqwest::Client) -> Result<()> {
-        Command::new(self.0)
-            .arg("-d")
-            .kill_on_drop(true)
-            .status()
-            .await?;
-        Ok(())
-    }
-
-    async fn connect(&self, _: &reqwest::Client) -> Result<()> {
-        Command::new(self.0)
-            .args(["-c", "-g", random_country()])
-            .kill_on_drop(true)
-            .status()
-            .await?;
-        Ok(())
-    }
-}
-
-// struct AwaitedVpn<'path> {
-//     path: &'path Path,
-// }
-
-//impl VpnHandle for AwaitedVpn<'_> {
 async fn disconect(http: &reqwest::Client, path: &Path) -> Result<()> {
     let prev = public_ip(http).await?;
     Command::new(path)
@@ -133,14 +114,13 @@ async fn connect(http: &reqwest::Client, path: &Path) -> Result<()> {
 
     Ok(())
 }
-//}
 
 async fn rotate_vpn(ctx: &Context) -> Result<()> {
     let Some(path) = ctx.vpn_path() else {
         ctx.verboser().vpn_not_available();
         return Ok(());
     };
-    
+
     let v = ctx.verboser();
     v.vpn_rotating();
     let http = ctx.http();
@@ -161,8 +141,8 @@ pub struct VpnRotator {
     rotating: AtomicBool,
 }
 
-/// Guarda RAII que libera el flag de rotacion al salir del ambito, incluso si
-/// la rotacion termina en error.
+/// Guarda RAII que libera el flag de rotación al salir del ambito, incluso si
+/// la rotación termina en error.
 struct RotationGuard<'a>(&'a AtomicBool);
 
 impl<'a> RotationGuard<'a> {
