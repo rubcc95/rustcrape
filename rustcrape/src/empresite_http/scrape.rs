@@ -3,18 +3,12 @@ use std::time::Duration;
 use anyhow::Result;
 use scraper::{Html, Selector};
 
+use crate::context::Context;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::random_delay;
 use crate::utils::*;
-use crate::verboser::Verboser;
-use crate::vpn::VpnRotator;
-
-/// Version de Chrome declarada en el User-Agent y los Client Hints. Al no haber
-/// navegador, es un valor fijo y actual (sin mismatch TLS-vs-UA porque el TLS lo
-/// emite reqwest, no Chrome).
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
 /// Maximo de reintentos por listado/ficha antes de darla por inaccesible.
 const MAX_LISTING_ATTEMPTS: usize = 3;
@@ -24,91 +18,36 @@ const BASE_URL: &str = "https://empresite.eleconomista.es";
 
 // --- Cliente HTTP -----------------------------------------------------------
 
-/// Cliente HTTP con un jar de cookies y cabeceras de navegador coherentes.
-///
-/// Un cliente por tarea (página de listado + sus fichas) imita una sesión de
-/// navegador: conserva `JSESSIONID` y demás cookies que el servlet/WAF pueda
-/// exigir entre la petición del listado y las de las fichas.
-struct HttpClient {
-    client: reqwest::Client,
+/// Obtiene el HTML de un listado. El listado filtrado se sirve mediante un POST
+/// (params en la query, cuerpo vacío); sin filtros basta un GET.
+async fn fetch_listing(ctx: &Context, url: &str, config: &EmpresiteConfig) -> Result<String> {
+    if config.filter_query().is_empty() {
+        get(ctx, url).await
+    } else {
+        post(ctx, url).await
+    }
 }
 
-impl HttpClient {
-    fn new() -> Result<Self> {
-        use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderName, HeaderValue, USER_AGENT as UA};
+async fn fetch_detail(ctx: &Context, url: &str) -> Result<String> {
+    get(ctx, url).await
+}
 
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(UA, HeaderValue::from_static(USER_AGENT));
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            ),
-        );
-        headers.insert(
-            ACCEPT_LANGUAGE,
-            HeaderValue::from_static("es-ES,es;q=0.9,en;q=0.8"),
-        );
-        headers.insert(
-            HeaderName::from_static("sec-ch-ua"),
-            HeaderValue::from_static(
-                "\"Chromium\";v=\"152\", \"Google Chrome\";v=\"152\", \"Not?A_Brand\";v=\"24\"",
-            ),
-        );
-        headers.insert(
-            HeaderName::from_static("sec-ch-ua-mobile"),
-            HeaderValue::from_static("?0"),
-        );
-        headers.insert(
-            HeaderName::from_static("sec-ch-ua-platform"),
-            HeaderValue::from_static("\"Windows\""),
-        );
+async fn get(ctx: &Context, url: &str) -> Result<String> {
+    let resp = ctx.http().get(url).send().await?;
+    Ok(resp.text().await?)
+}
 
-        let client = reqwest::Client::builder()
-            .cookie_store(true)
-            .default_headers(headers)
-            .build()?;
-
-        Ok(Self { client })
-    }
-
-    async fn fetch_listing(
-        &self,
-        url: &str,
-        config: &EmpresiteConfig,
-    ) -> Result<String> {
-        //let url = listing_url(activity, page, config);
-        // El listado filtrado se sirve mediante un POST (params en la query,
-        // cuerpo vacío); sin filtros basta un GET.
-        let html = if config.filter_query().is_empty() {
-            self.get(&url).await?
-        } else {
-            self.post(&url).await?
-        };
-        Ok(html)
-    }
-
-    async fn fetch_detail(&self, url: &str) -> Result<String> {
-        self.get(url).await
-    }
-
-    async fn get(&self, url: &str) -> Result<String> {
-        let resp = self.client.get(url).send().await?;
-        Ok(resp.text().await?)
-    }
-
-    async fn post(&self, url: &str) -> Result<String> {
-        let resp = self
-            .client
-            .post(url)
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded;charset=UTF-8",
-            )
-            .send()
-            .await?;
-        Ok(resp.text().await?)
-    }
+async fn post(ctx: &Context, url: &str) -> Result<String> {
+    let resp = ctx
+        .http()
+        .post(url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded;charset=UTF-8",
+        )
+        .send()
+        .await?;
+    Ok(resp.text().await?)
 }
 
 // --- Detección de bloqueo ---------------------------------------------------
@@ -354,11 +293,10 @@ enum DetailOutcome {
 struct CaptchaError;
 
 async fn unblock<F: Future<Output = Result<String>>>(
-    verboser: &dyn Verboser,
-    vpn: &VpnRotator,
+    ctx: &Context,
     then: impl Fn() -> F,
 ) -> Result<String> {
-    if !vpn.force_rotate_awaited(verboser).await? {
+    if !ctx.vpn_rotate_awaited().await? {
         return Err(CaptchaError.into());
     }
     Ok(wait_until(
@@ -372,24 +310,23 @@ async fn unblock<F: Future<Output = Result<String>>>(
 /// Scrapea una ficha de empresa por HTTP: reintenta (rotando IP) si está
 /// bloqueada o no carga, hasta `MAX_DETAIL_ATTEMPTS`.
 async fn scrape_detail(
-    http: &HttpClient,
+    ctx: &Context,
     link: &str,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
     count: usize,
 ) -> Result<DetailOutcome> {
+    let verboser = ctx.verboser();
     let url = absolutize(link);
 
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
-        let mut html = http.fetch_detail(&url).await?;
+        let mut html = fetch_detail(ctx, &url).await?;
 
         if is_blocked(&html) {
             verboser.warn(&format!(
                 "Ficha {} bloqueada (429); rotando IP (intento {attempt})",
                 link
             ));
-            html = unblock(verboser, vpn, || http.fetch_detail(&url)).await?;
+            html = unblock(ctx, || fetch_detail(ctx, &url)).await?;
         }
 
         if !is_detail_loaded(&html) {
@@ -431,12 +368,11 @@ async fn scrape_detail(
 /// Scrapea una página del listado: obtiene el HTML, extrae los enlaces a las
 /// fichas y scrapea cada una por HTTP.
 async fn scrape_internal(
-    http: &HttpClient,
+    ctx: &Context,
     params: &EmpresiteParams,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
 ) -> Result<ScrapeResult> {
+    let verboser = ctx.verboser();
     verboser.searching_coincidences();
 
     let activity = activity_slug(&config.empresite.search_query);
@@ -445,17 +381,14 @@ async fn scrape_internal(
     let mut listing: Option<(Vec<String>, bool)> = None;
     for _ in 0..MAX_LISTING_ATTEMPTS {
         let url = listing_url(&activity, params.page, &config.empresite);
-        let Ok(mut html) = http
-            .fetch_listing(&url, &config.empresite)
-            .await
-        else {
+        let Ok(mut html) = fetch_listing(ctx, &url, &config.empresite).await else {
             continue;
         };
 
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
             
-            html = unblock(verboser, vpn, || http.fetch_listing(&url, &config.empresite)).await?;
+            html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite)).await?;
         }
 
         let links = extract_company_links(&html);
@@ -485,7 +418,7 @@ async fn scrape_internal(
         ))
         .await;
 
-        match scrape_detail(http, &link, config, vpn, verboser, idx + 1).await? {
+        match scrape_detail(ctx, &link, config, idx + 1).await? {
             DetailOutcome::Found(coincidence) => coincidences.push(coincidence),
             DetailOutcome::Skipped => {}
         }
@@ -497,11 +430,9 @@ async fn scrape_internal(
 pub async fn scrape(
     params: &EmpresiteParams,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
+    ctx: &Context,
 ) -> Result<ScrapeResult> {
-    let http = HttpClient::new()?;
-    scrape_internal(&http, params, config, vpn, verboser).await
+    scrape_internal(ctx, params, config).await
 }
 
 #[cfg(test)]

@@ -4,19 +4,17 @@ mod scrape;
 pub use config::EmpresiteParams;
 
 use std::num::NonZeroU32;
-use std::sync::Arc;
 
 use anyhow::Result;
 
+use crate::context::Context;
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
 use crate::types::Config;
 use crate::verboser::Verboser;
-use crate::vpn::VpnRotator;
 
 pub struct EmpresiteScraper {
     //config: EmpresiteConfig,
-    vpn: Arc<VpnRotator>,
     //profile_dir: Option<PathBuf>,
     //browser_path: Option<PathBuf>,
 }
@@ -24,13 +22,11 @@ pub struct EmpresiteScraper {
 impl EmpresiteScraper {
     pub fn new(
         //config: EmpresiteConfig,
-        vpn: Arc<VpnRotator>,
         // profile_dir: Option<PathBuf>,
         // browser_path: Option<PathBuf>,
     ) -> Self {
         Self {
             //config,
-            vpn,
             //profile_dir,
             //browser_path,
         }
@@ -119,8 +115,8 @@ impl Scraper for EmpresiteScraper {
         //browser: &Browser,
         config: &Config,
         params: &Self::Params,
-        verboser: &dyn Verboser,
+        ctx: &Context,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(params, config, &self.vpn, verboser).await
+        scrape::scrape(params, config, ctx).await
     }
 }

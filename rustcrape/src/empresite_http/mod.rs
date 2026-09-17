@@ -1,27 +1,24 @@
 pub mod scrape;
 
 use std::num::NonZeroU32;
-use std::sync::Arc;
 
 use anyhow::Result;
 
+use crate::context::Context;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
 use crate::types::Config;
 use crate::verboser::Verboser;
-use crate::vpn::VpnRotator;
 
 /// Variante de Empresite que scrapea por HTTP puro (`reqwest` + parser HTML),
 /// sin navegador. Comparte la misma cola de páginas y la misma columna `source`
 /// de la base de datos que el scraper original basado en chromiumoxide.
-pub struct EmpresiteHttpScraper {
-    vpn: Arc<VpnRotator>,
-}
+pub struct EmpresiteHttpScraper;
 
 impl EmpresiteHttpScraper {
-    pub fn new(vpn: Arc<VpnRotator>) -> Self {
-        Self { vpn }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -92,8 +89,8 @@ impl Scraper for EmpresiteHttpScraper {
         &self,
         config: &Config,
         params: &Self::Params,
-        verboser: &dyn Verboser,
+        ctx: &Context,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(params, config, &self.vpn, verboser).await
+        scrape::scrape(params, config, ctx).await
     }
 }

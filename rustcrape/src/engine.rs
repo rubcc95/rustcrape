@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::context::Context;
 use crate::db::PersistenceKind;
 use crate::empresite_http::EmpresiteHttpScraper;
 use crate::google_maps::GoogleMapsScraper;
@@ -8,7 +8,6 @@ use crate::scraper::Scraper;
 use crate::storage::Persistence;
 use crate::types::{Config, ExecutionMode};
 use crate::verboser::Verboser;
-use crate::vpn::VpnRotator;
 
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(3600);
 
@@ -22,44 +21,32 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
         }
     };
 
-    let verboser: Arc<dyn Verboser> = Arc::new(verboser);
-    let vpn = Arc::new(VpnRotator::new(
+    let ctx = Context::new(
+        verboser,
         config.nordvpn_path.clone(),
         config.ip_rotation_frequency,
-    ));
+    );
 
-    let gmaps = config.gmaps.enabled.then(|| {
-        GoogleMapsScraper::new(
-            // config.google_maps.clone(),
-            // config.browser_path.clone().map(PathBuf::from),
-            // Some(
-            //     config
-            //         .browser_profile_dir.clone()
-            //         .map(PathBuf::from)
-            //         .unwrap_or_else(|| std::env::temp_dir().join("rustcrape-profiles"))
-            //         .join("gmaps"),
-            // ),
-        )
-    });
+    let gmaps = config.gmaps.enabled.then(GoogleMapsScraper::new);
     let empresite = config
         .empresite
         .enabled
-        .then(|| EmpresiteHttpScraper::new(vpn.clone()));
+        .then(EmpresiteHttpScraper::new);
 
     match config.execution_mode {
         ExecutionMode::Sequential => {
             if let Some(scraper) = gmaps {
-                run_target(scraper, &config, &persist, verboser.clone(), vpn.clone()).await;
+                run_target(scraper, &config, &persist, &ctx).await;
             }
             if let Some(scraper) = empresite {
-                run_target(scraper, &config, &persist, verboser.clone(), vpn.clone()).await;
+                run_target(scraper, &config, &persist, &ctx).await;
             }
         }
         ExecutionMode::Parallel => {
             // let mut handles = Vec::new();
             // if let Some(scraper) = gmaps {
             //     let persist = persist.clone();
-            //     let verboser = verboser.clone();
+            //     let verboser = ctx.verboser().clone();
             //     let vpn = vpn.clone();
             //     handles.push(tokio::spawn(async move {
             //         run_target(scraper, persist, verboser, vpn).await;
@@ -67,7 +54,7 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
             // }
             // if let Some(scraper) = empresite {
             //     let persist = persist.clone();
-            //     let verboser = verboser.clone();
+            //     let verboser = ctx.verboser().clone();
             //     let vpn = vpn.clone();
             //     handles.push(tokio::spawn(async move {
             //         run_target(scraper, persist, verboser, vpn).await;
@@ -85,11 +72,11 @@ async fn run_target<S: Scraper>(
     scraper: S,
     config: &Config,
     persist: &impl Persistence,
-    verboser: Arc<dyn Verboser>,
-    vpn: Arc<VpnRotator>,
+    ctx: &Context,
 ) {
-    if let Err(err) = scraper.seed(config, persist, &*verboser).await {
-        verboser.error(&format!("Error seeding tasks to scraper: {err}"));
+    if let Err(err) = scraper.seed(config, persist, ctx.verboser()).await {
+        ctx.verboser()
+            .error(&format!("Error seeding tasks to scraper: {err}"));
         return;
     }
 
@@ -97,14 +84,14 @@ async fn run_target<S: Scraper>(
     let mut timestamps: Vec<Instant> = Vec::new();
 
     loop {
-        if verboser.is_cancelled() {
-            verboser.warn("Operation canceled by the user");
+        if ctx.verboser().is_cancelled() {
+            ctx.verboser().warn("Operation canceled by the user");
             break;
         }
 
         if let Some(iterations) = scraper.iterations(config) {
             if iterations.get() <= iteration {
-                verboser.finished();
+                ctx.verboser().finished();
                 break;
             }
         }
@@ -117,41 +104,41 @@ async fn run_target<S: Scraper>(
                 let wait = RATE_LIMIT_WINDOW
                     .checked_sub(now.duration_since(oldest))
                     .unwrap_or_default();
-                verboser.rate_limit_wait(wait);
+                ctx.verboser().rate_limit_wait(wait);
                 tokio::time::sleep(wait).await;
             }
             timestamps.push(Instant::now());
         }
 
-        if let Err(err) = vpn.tick(&*verboser).await {
-            verboser.error(&format!("Error rotating vpn: {err}"));
+        if let Err(err) = ctx.vpn_tick().await {
+            ctx.verboser().error(&format!("Error rotating vpn: {err}"));
         }
 
-        verboser.obtaining_task();
+        ctx.verboser().obtaining_task();
 
         let claimed = match scraper.claim(persist).await {
             Ok(claimed) => claimed,
             Err(err) => {
-                verboser.error(&format!("Error claiming task: {err}"));
+                ctx.verboser().error(&format!("Error claiming task: {err}"));
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
         };
 
         let Some((task_id, params)) = claimed else {
-            verboser.finished();
+            ctx.verboser().finished();
             break;
         };
 
-        verboser.claimed_task(&scraper.describe(&params));
+        ctx.verboser().claimed_task(&scraper.describe(&params));
 
-        if verboser.is_cancelled() {
-            verboser.warn("Cancelado antes de abrir el navegador");
+        if ctx.verboser().is_cancelled() {
+            ctx.verboser().warn("Cancelado antes de abrir el navegador");
             let _ = scraper.release(persist, task_id, None).await;
             break;
         }
 
-        // verboser.opening_browser(&label);
+        // ctx.verboser().opening_browser(&label);
         //let profile_dir = profile_root.join(scraper.name());
         // let browser = match Browser::launch(
         //     scraper.headless(),
@@ -162,20 +149,20 @@ async fn run_target<S: Scraper>(
         // {
         //     Ok(browser) => browser,
         //     Err(err) => {
-        //         verboser.error(&format!("Error launching browser: {err}"));
+        //         ctx.verboser().error(&format!("Error launching browser: {err}"));
         //         let _ = scraper.release(&persist, task_id, None).await;
         //         iteration += 1;
         //         continue;
         //     }
         // };
 
-        let result = scraper.scrape(config, &params, &*verboser).await;
-        verboser.closing_browser();
+        let result = scraper.scrape(config, &params, ctx).await;
+        ctx.verboser().closing_browser();
         //let _ = browser.close().await;
 
         match result {
             Ok(result) => {
-                verboser.writing_coincidences(&result.coincidences);
+                ctx.verboser().writing_coincidences(&result.coincidences);
                 let items = result.coincidences.len() as i32;
                 let written = match persist
                     .write_coincidences(scraper.name(), result.coincidences)
@@ -183,25 +170,25 @@ async fn run_target<S: Scraper>(
                 {
                     Ok(written) => written as i32,
                     Err(err) => {
-                        verboser.error(&format!("Error writing coincidences: {err}"));
+                        ctx.verboser().error(&format!("Error writing coincidences: {err}"));
                         let _ = scraper.release(persist, task_id, None).await;
                         iteration += 1;
                         continue;
                     }
                 };
-                verboser.written_coincidences(written);
+                ctx.verboser().written_coincidences(written);
                 scraper
                     .release(persist, task_id, Some((items, items - written)))
                     .await
                     .ok();
-                verboser.released_task();
+                ctx.verboser().released_task();
 
                 if let Err(err) = scraper.advance(persist, &params, result.has_more).await {
-                    verboser.error(&format!("Error advancing queue: {err}"));
+                    ctx.verboser().error(&format!("Error advancing queue: {err}"));
                 }
             }
             Err(err) => {
-                verboser.error(&format!("Error during scraping: {err}"));
+                ctx.verboser().error(&format!("Error during scraping: {err}"));
                 let _ = scraper.release(persist, task_id, None).await;
                 iteration += 1;
                 continue;

@@ -2,12 +2,12 @@ use anyhow::Result;
 use serde::Deserialize;
 
 use crate::browser::Browser;
+use crate::context::Context;
 use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::*;
 use crate::verboser::Verboser;
-use crate::vpn::VpnRotator;
 
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
@@ -273,17 +273,14 @@ async fn unblock<F>(
     browser: &mut Browser,
     page: &mut Page,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
+    ctx: &Context,
     is_correctly_loaded: impl Fn(Page) -> F,
 ) -> Result<()>
 where
     
     F: Future<Output = Result<bool>>,
 {
-    // let mut new_page: Page; 
-    // let mut page_ref = page;
-    // let mut page_id = None;
+    let verboser = ctx.verboser();
 
     verboser.warn("Captcha/429 detectado en Empresite; intentando resolverlo");
 
@@ -296,7 +293,7 @@ where
     // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
     // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
     // se completa pero el captcha persiste, el bucle prueba con otra IP.
-    if vpn.force_rotate_awaited(verboser).await? {
+    if ctx.vpn_rotate_awaited().await? {
         let url = page.url().await?.unwrap();
 
         browser.close().await?;
@@ -504,10 +501,10 @@ async fn scrape_detail(
     browser: &mut Browser,
     link: &str,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
+    ctx: &Context,
     count: usize,
 ) -> Result<DetailOutcome> {
+    let verboser = ctx.verboser();
     let mut page = browser.new_page(link).await?;
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
         //dismiss_dialogs(&detail_page).await;
@@ -532,7 +529,7 @@ async fn scrape_detail(
 
         match is_blocked {
             Ok(true) => {
-                unblock(browser, &mut page, config, vpn, verboser, |page| async move {
+                unblock(browser, &mut page, config, ctx, |page| async move {
                     is_detail_loaded(&page).await
                 })
                 .await?;
@@ -611,9 +608,10 @@ pub async fn scrape_internal(
     browser: &mut Browser,
     params: &EmpresiteParams,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
+    ctx: &Context,
 ) -> Result<ScrapeResult> {
+    let verboser = ctx.verboser();
+
     verboser.searching_coincidences();
 
     let activity = activity_slug(&config.empresite.search_query);
@@ -631,7 +629,7 @@ pub async fn scrape_internal(
 
     // El listado puede venir bloqueado por captcha.
     if has_captcha(&page).await? {
-        unblock(browser, &mut page, &config, vpn, verboser, |_page| async move {
+        unblock(browser, &mut page, &config, ctx, |_page| async move {
             Ok(true)
         })
         .await?;
@@ -655,7 +653,7 @@ pub async fn scrape_internal(
         .await;
 
         if let DetailOutcome::Found(coincidence) =
-            scrape_detail(browser, &link, &config, vpn, verboser, idx + 1).await?
+            scrape_detail(browser, &link, &config, ctx, idx + 1).await?
         {
             coincidences.push(coincidence);
         }
@@ -667,11 +665,10 @@ pub async fn scrape_internal(
 pub async fn scrape(
     params: &EmpresiteParams,
     config: &Config,
-    vpn: &VpnRotator,
-    verboser: &dyn Verboser,
+    ctx: &Context,
 ) -> Result<ScrapeResult> {
     let mut browser = Browser::empresite(config).await?;
-    let out = scrape_internal(&mut browser, params, config, vpn, verboser).await;
+    let out = scrape_internal(&mut browser, params, config, ctx).await;
     browser.close().await?;
     out
 }

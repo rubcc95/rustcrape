@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 
 use anyhow::Result;
 
+use crate::context::Context;
 use crate::storage::Persistence;
 use crate::types::{Coincidence, Config};
 use crate::verboser::Verboser;
@@ -88,6 +89,6 @@ pub trait Scraper: Send + Sync {
         //browser: &Browser,
         config: &Config,
         params: &Self::Params,
-        verboser: &dyn Verboser,
+        ctx: &Context,
     ) -> Result<ScrapeResult>;
 }

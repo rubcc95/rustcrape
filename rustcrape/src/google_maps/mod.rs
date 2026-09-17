@@ -9,6 +9,7 @@ use std::num::NonZeroU32;
 
 use anyhow::Result;
 
+use crate::context::Context;
 use crate::scraper::{ScrapeResult, Scraper};
 use crate::storage::Persistence;
 use crate::types::Config;
@@ -114,8 +115,8 @@ impl Scraper for GoogleMapsScraper {
         //browser: &Browser,
         config: &Config,
         params: &Self::Params,
-        verboser: &dyn Verboser,
+        ctx: &Context,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(params, config, verboser).await
+        scrape::scrape(params, config, ctx).await
     }
 }

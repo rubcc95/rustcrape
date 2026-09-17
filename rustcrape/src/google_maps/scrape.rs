@@ -1,4 +1,5 @@
 use crate::browser::Browser;
+use crate::context::Context;
 use crate::google_maps::config::GMapsParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, Config, GMapsConfig};
@@ -455,8 +456,9 @@ async fn scrape_feed(
 pub async fn scrape(
     params: &GMapsParams,
     config: &Config,
-    verboser: &dyn Verboser,
+    ctx: &Context,
 ) -> Result<ScrapeResult> {
+    let verboser = ctx.verboser();
     verboser.opening_browser(&format!("({}, {})", params.lat, params.lng));
     let mut instance = Browser::gmaps(config).await?;
     

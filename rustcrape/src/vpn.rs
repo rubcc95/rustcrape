@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
+use crate::context::Context;
 use crate::utils::wait_until;
 use crate::verboser::Verboser;
 
@@ -47,18 +48,21 @@ fn random_country() -> &'static str {
     let idx = rand::random::<usize>() % VPN_COUNTRIES.len();
     VPN_COUNTRIES[idx]
 }
-/// Consulta la IP publica de salida via `curl`.
+/// Consulta la IP publica de salida mediante `reqwest`.
 ///
 /// El CLI de NordVPN no expone un comando de estado, asi que se usa la IP de
 /// salida como senal observable de que el trafico ya sale por el nuevo tunel.
-async fn public_ip() -> Result<String> {
-    let output = Command::new("curl")
-        .args(["-4", "--silent", "--max-time", "5", IP_PROBE_URL])
-        .kill_on_drop(true)
-        .output()
+async fn public_ip(client: &reqwest::Client) -> Result<String> {
+    let body = client
+        .get(IP_PROBE_URL)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
         .await?;
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(body.trim().to_string())
 }
 
 //  async fn wait_for_new_ip(prev: &str) -> Result<String> {
@@ -74,19 +78,19 @@ async fn public_ip() -> Result<String> {
 //  }
 
 #[allow(async_fn_in_trait)]
-pub trait VpnHandle {
-    async fn disconect(&self) -> Result<bool>;
-    async fn connect(&self) -> Result<bool>;
+trait VpnHandle {
+    async fn disconect(&self, http: &reqwest::Client) -> Result<bool>;
+    async fn connect(&self, http: &reqwest::Client) -> Result<bool>;
 }
 
 pub struct NoVpn;
 
 impl VpnHandle for NoVpn {
-    async fn disconect(&self) -> Result<bool> {
+    async fn disconect(&self, _: &reqwest::Client) -> Result<bool> {
         Ok(false)
     }
 
-    async fn connect(&self) -> Result<bool> {
+    async fn connect(&self, _: &reqwest::Client) -> Result<bool> {
         Ok(false)
     }
 }
@@ -94,7 +98,7 @@ impl VpnHandle for NoVpn {
 pub struct UnawaitedVpn<'a>(&'a Path);
 
 impl VpnHandle for UnawaitedVpn<'_> {
-    async fn disconect(&self) -> Result<bool> {
+    async fn disconect(&self, _: &reqwest::Client) -> Result<bool> {
         Command::new(self.0)
             .arg("-d")
             .kill_on_drop(true)
@@ -103,7 +107,7 @@ impl VpnHandle for UnawaitedVpn<'_> {
         Ok(true)
     }
 
-    async fn connect(&self) -> Result<bool> {
+    async fn connect(&self, _: &reqwest::Client) -> Result<bool> {
         Command::new(self.0)
             .args(["-c", "-g", random_country()])
             .kill_on_drop(true)
@@ -119,8 +123,8 @@ pub struct AwaitedVpn<'path> {
 }
 
 impl VpnHandle for AwaitedVpn<'_> {
-    async fn disconect(&self) -> Result<bool> {
-        let prev = public_ip().await?;
+    async fn disconect(&self,  http: &reqwest::Client) -> Result<bool> {
+        let prev = public_ip(http).await?;
         Command::new(self.path)
             .arg("-d")
             .kill_on_drop(true)
@@ -128,7 +132,7 @@ impl VpnHandle for AwaitedVpn<'_> {
             .await?;
         wait_until(
             || async {
-                let curr = public_ip().await?;
+                let curr = public_ip(http).await?;
                 Ok(if curr == prev { None } else { Some(curr) })
             },
             VPN_POLL_INTERVAL,
@@ -138,8 +142,8 @@ impl VpnHandle for AwaitedVpn<'_> {
         Ok(true)
     }
 
-    async fn connect(&self) -> Result<bool> {
-        let prev = public_ip().await?;
+    async fn connect(&self, http: &reqwest::Client) -> Result<bool> {
+        let prev = public_ip(http).await?;
         Command::new(self.path)
             .args(["-c", "-g", random_country()])
             .kill_on_drop(true)
@@ -147,7 +151,7 @@ impl VpnHandle for AwaitedVpn<'_> {
             .await?;
         wait_until(
             || async {
-                let curr = public_ip().await?;
+                let curr = public_ip(http).await?;
                 Ok(if curr == prev { None } else { Some(curr) })
             },
             VPN_POLL_INTERVAL,
@@ -159,65 +163,13 @@ impl VpnHandle for AwaitedVpn<'_> {
     }
 }
 
-pub async fn rotate_vpn(
-    vpn_handle: &impl VpnHandle,
-    verboser: &dyn Verboser,
-) -> Result<()> {
-    verboser.vpn_rotating();
-    vpn_handle.disconect().await?;
-    vpn_handle.connect().await?;
-    
-    // // IP de salida actual, antes de mover el tunel. Best-effort: si falla, tras
-    // // conectar basta con que haya conectividad.
-    // //let mut ip = public_ip().await?;
-
-    // // Desconectar es best-effort: puede no haber conexion previa.
-    // Command::new(nordvpn_path)
-    //     .arg("-d")
-    //     .kill_on_drop(true)
-    //     .status()
-    //     .await?;
-
-    // //ip = wait_for_new_ip(&ip).await?;
-
-    // let connected = Command::new(nordvpn_path)
-    //     .args(["-c", "-g", random_country()])
-    //     .kill_on_drop(true)
-    //     .status()
-    //     .await?;
+async fn rotate_vpn(vpn_handle: &impl VpnHandle, ctx: &Context) -> Result<()> {
+    ctx.verboser().vpn_rotating();
+    let http = ctx.http();
+    vpn_handle.disconect(http).await?;
+    vpn_handle.connect(http).await?;
 
     Ok(())
-    //wait_for_new_ip(&ip).await?;
-
-    // // El comando `-c` solo confirma que NordVPN acepto la orden, no que el
-    // // tunel este operativo. Se espera a observar la nueva IP de salida.
-    // let ready = if curl_available().await {
-    //     wait_until_ready(
-    //         public_ip,
-    //         before.as_deref(),
-    //         VPN_READY_TIMEOUT,
-    //         VPN_POLL_INTERVAL,
-    //         || verboser.is_cancelled(),
-    //     )
-    //     .await
-    // } else {
-    //     wait_until_ready(
-    //         vpn_reachable,
-    //         None,
-    //         VPN_READY_TIMEOUT,
-    //         VPN_POLL_INTERVAL,
-    //         || verboser.is_cancelled(),
-    //     )
-    //     .await
-    // };
-
-    // if ready {
-    //     verboser.vpn_rotated();
-    // } else {
-    //     verboser.warn("VPN: la conexion no quedo lista a tiempo");
-    // }
-
-    // Ok(true)
 }
 
 /// Rotador de VPN compartido por todos los targets. Rota globalmente cada
@@ -238,7 +190,7 @@ impl VpnRotator {
     }
 
     /// Debe llamarse una vez por tarea procesada (por cualquier target).
-    pub async fn tick(&self, verboser: &dyn Verboser) -> Result<bool> {
+    pub async fn tick(&self, ctx: &Context) -> Result<bool> {
         let should_rotate = {
             let mut counter = self.counter.lock().unwrap();
             *counter = counter.wrapping_add(1);
@@ -249,37 +201,37 @@ impl VpnRotator {
             return Ok(false);
         }
 
-        self.force_rotate(verboser).await
+        self.force_rotate(ctx).await
     }
 
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
-    pub async fn force_rotate(&self, verboser: &dyn Verboser) -> Result<bool> {
+    pub async fn force_rotate(&self, ctx: &Context) -> Result<bool> {
         let Some(path) = &self.path else {
-            verboser.vpn_not_available();
+            ctx.verboser().vpn_not_available();
             return Ok(false);
         };
 
-        self.force_rotate_internal(&UnawaitedVpn(path), verboser).await
+        self.force_rotate_internal(&UnawaitedVpn(path), ctx).await
     }
 
         /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
-    pub async fn force_rotate_awaited(&self, verboser: &dyn Verboser) -> Result<bool> {
+    pub async fn force_rotate_awaited(&self, ctx: &Context) -> Result<bool> {
         let Some(path) = &self.path else {
-            verboser.vpn_not_available();
+            ctx.verboser().vpn_not_available();
             return Ok(false);
         };
 
-        self.force_rotate_internal(&AwaitedVpn { path: path }, verboser).await
+        self.force_rotate_internal(&AwaitedVpn { path: path }, ctx).await
     }
 
       /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
-    async fn force_rotate_internal(&self, handle: &impl VpnHandle, verboser: &dyn Verboser) -> Result<bool> {
+    async fn force_rotate_internal(&self, handle: &impl VpnHandle, ctx: &Context) -> Result<bool> {
         // VPN desactivada: la casilla de la GUI va ligada a la frecuencia de
         // rotacion, de modo que `frequency == 0` significa que el usuario la
         // desactivo. En ese caso no se rota aunque NordVPN este instalado.
@@ -287,12 +239,7 @@ impl VpnRotator {
             return Ok(false);
         }
 
-        // let Some(path) = &self.path else {
-        //     verboser.vpn_not_available();
-        //     return Ok(false);
-        // };
-
-        rotate_vpn(handle, verboser).await?;
+        rotate_vpn(handle, ctx).await?;
         *self.counter.lock().unwrap() = 0;
 
         Ok(true)
