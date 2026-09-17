@@ -293,7 +293,7 @@ where
     // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
     // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
     // se completa pero el captcha persiste, el bucle prueba con otra IP.
-    if ctx.vpn_rotate_awaited().await? {
+    if ctx.vpn_rotate().await? {
         let url = page.url().await?.unwrap();
 
         browser.close().await?;

@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use anyhow::Result;
 
@@ -92,9 +93,8 @@ impl Context {
         self.vpn.force_rotate(self)
     }
 
-    #[inline]
-    pub fn vpn_rotate_awaited(&self) -> impl Future<Output = Result<bool>> {
-        self.vpn.force_rotate_awaited(self)
+    pub fn vpn_path(&self) -> Option<&Path> {
+        self.vpn.path()
     }   
 
 }

@@ -296,7 +296,7 @@ async fn unblock<F: Future<Output = Result<String>>>(
     ctx: &Context,
     then: impl Fn() -> F,
 ) -> Result<String> {
-    if !ctx.vpn_rotate_awaited().await? {
+    if !ctx.vpn_rotate().await? {
         return Err(CaptchaError.into());
     }
     Ok(wait_until(
