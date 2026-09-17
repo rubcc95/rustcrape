@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use scraper::{Html, Selector};
 
@@ -5,6 +7,7 @@ use crate::empresite::config::EmpresiteParams;
 use crate::scraper::ScrapeResult;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::random_delay;
+use crate::utils::*;
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
 
@@ -71,14 +74,13 @@ impl HttpClient {
 
     async fn fetch_listing(
         &self,
-        activity: &str,
-        page: u32,
-        cfg: &EmpresiteConfig,
+        url: &str,
+        config: &EmpresiteConfig,
     ) -> Result<String> {
-        let url = listing_url(activity, page, cfg);
+        //let url = listing_url(activity, page, config);
         // El listado filtrado se sirve mediante un POST (params en la query,
         // cuerpo vacío); sin filtros basta un GET.
-        let html = if cfg.filter_query().is_empty() {
+        let html = if config.filter_query().is_empty() {
             self.get(&url).await?
         } else {
             self.post(&url).await?
@@ -347,6 +349,26 @@ enum DetailOutcome {
     Skipped,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("Captcha locked the page. VPN unable to rotate.")]
+struct CaptchaError;
+
+async fn unblock<F: Future<Output = Result<String>>>(
+    verboser: &dyn Verboser,
+    vpn: &VpnRotator,
+    then: impl Fn() -> F,
+) -> Result<String> {
+    if !vpn.force_rotate_awaited(verboser).await? {
+        return Err(CaptchaError.into());
+    }
+    Ok(wait_until(
+        || async { Ok(Some(then().await?)) },
+        Duration::from_millis(500),
+        Duration::from_secs(10),
+    )
+    .await?)
+}
+
 /// Scrapea una ficha de empresa por HTTP: reintenta (rotando IP) si está
 /// bloqueada o no carga, hasta `MAX_DETAIL_ATTEMPTS`.
 async fn scrape_detail(
@@ -360,17 +382,14 @@ async fn scrape_detail(
     let url = absolutize(link);
 
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
-        let Ok(html) = http.fetch_detail(&url).await else { continue; };
+        let mut html = http.fetch_detail(&url).await?;
 
         if is_blocked(&html) {
             verboser.warn(&format!(
                 "Ficha {} bloqueada (429); rotando IP (intento {attempt})",
                 link
             ));
-            if !vpn.force_rotate_awaited(verboser).await? {
-                return Ok(DetailOutcome::Skipped);
-            }
-            continue;
+            html = unblock(verboser, vpn, || http.fetch_detail(&url)).await?;
         }
 
         if !is_detail_loaded(&html) {
@@ -425,8 +444,9 @@ async fn scrape_internal(
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
     for _ in 0..MAX_LISTING_ATTEMPTS {
-        let Ok(html) = http
-            .fetch_listing(&activity, params.page, &config.empresite)
+        let url = listing_url(&activity, params.page, &config.empresite);
+        let Ok(mut html) = http
+            .fetch_listing(&url, &config.empresite)
             .await
         else {
             continue;
@@ -434,13 +454,9 @@ async fn scrape_internal(
 
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
-            if !vpn.force_rotate_awaited(verboser).await? {
-                return Err(anyhow::anyhow!(
-                    "listado bloqueado y no se pudo rotar la IP"
-                ));
-            }
-            continue;
-        } 
+            
+            html = unblock(verboser, vpn, || http.fetch_listing(&url, &config.empresite)).await?;
+        }
 
         let links = extract_company_links(&html);
         let has_more = has_next_page(&html, params.page);
