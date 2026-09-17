@@ -10,10 +10,6 @@ use crate::context::Context;
 use crate::utils::wait_until;
 use crate::verboser::Verboser;
 
-/// Tiempo maximo a esperar a que la VPN sea realmente usable tras conectar.
-const VPN_READY_TIMEOUT: Duration = Duration::from_secs(45);
-/// Intervalo entre sondeos de disponibilidad de la VPN.
-const VPN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// Servicio que devuelve la IP publica de salida.
 const IP_PROBE_URL: &str = "https://api.ipify.org";
 
@@ -94,8 +90,8 @@ where
             };
             Ok(if curr == prev { None } else { Some(curr) })
         },
-        VPN_POLL_INTERVAL,
-        VPN_READY_TIMEOUT,
+        Duration::from_millis(500),
+        (),
     )
     .await?;
 
