@@ -141,7 +141,7 @@ async fn rotate_vpn(vpn_handle: &impl VpnHandle, ctx: &Context) -> Result<()> {
     let http = ctx.http();
     vpn_handle.disconect(http).await?;
     ctx.verboser().debug("VPN disconnected");
-    vpn_handle.connect(http).await?;    
+    vpn_handle.connect(http).await?;
     ctx.verboser().debug("VPN connected");
 
     Ok(())
@@ -159,6 +159,18 @@ pub struct VpnRotator {
 /// Guarda RAII que libera el flag de rotacion al salir del ambito, incluso si
 /// la rotacion termina en error.
 struct RotationGuard<'a>(&'a AtomicBool);
+
+impl<'a> RotationGuard<'a> {
+    pub fn new(rotator: &'a VpnRotator) -> Option<Self> {
+        match rotator
+            .rotating
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => Some(RotationGuard(&rotator.rotating)),
+            Err(_) => None,
+        }
+    }
+}
 
 impl Drop for RotationGuard<'_> {
     fn drop(&mut self) {
@@ -229,20 +241,19 @@ impl VpnRotator {
 
         // Ignorar peticiones de rotacion mientras ya hay una en curso para no
         // lanzar comandos NordVPN solapados.
-        if self
-            .rotating
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            ctx.verboser().debug("VPN rotation already in progress, ignoring request");
-            return Ok(false);
-        }
-        let _guard = RotationGuard(&self.rotating);
-
-        rotate_vpn(handle, ctx).await?;
-        *self.counter.lock().unwrap() = 0;
-
-        Ok(true)
+        Ok(match RotationGuard::new(self) {
+            Some(guard) => {
+                rotate_vpn(handle, ctx).await?;
+                *self.counter.lock().unwrap() = 0;
+                drop(guard);
+                true
+            }
+            None => {
+                ctx.verboser()
+                    .debug("VPN rotation already in progress, ignoring request");
+                false
+            }
+        })
     }
 }
 
