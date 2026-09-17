@@ -8,6 +8,7 @@ use tokio::process::Command;
 
 use crate::context::Context;
 use crate::utils::wait_until;
+use crate::verboser::Verboser;
 
 /// Tiempo maximo a esperar a que la VPN sea realmente usable tras conectar.
 const VPN_READY_TIMEOUT: Duration = Duration::from_secs(45);
@@ -49,7 +50,7 @@ fn random_country() -> &'static str {
 ///
 /// El CLI de NordVPN no expone un comando de estado, asi que se usa la IP de
 /// salida como señal observable de que el tráfico ya sale por el nuevo túnel.
-async fn public_ip(client: &reqwest::Client) -> Result<String> {
+async fn public_ip(client: &reqwest::Client, v: &dyn Verboser) -> Result<String> {
     wait_until(
         || async {
             match client
@@ -62,7 +63,8 @@ async fn public_ip(client: &reqwest::Client) -> Result<String> {
                     res.error_for_status()?.text().await?.trim().to_string(),
                 )),
                 Err(err) => {
-                    if err.is_connect() || err.is_dns() || err.is_timeout() {
+                    if err.is_request() || err.is_body() {
+                        v.debug(&format!("VPN probe: no connectivity yet, retrying: {err}"));
                         Ok(None)
                     } else {
                         Err(err.into())
@@ -76,8 +78,8 @@ async fn public_ip(client: &reqwest::Client) -> Result<String> {
     .await
 }
 
-async fn disconect(http: &reqwest::Client, path: &Path) -> Result<()> {
-    let prev = public_ip(http).await?;
+async fn disconect(http: &reqwest::Client, path: &Path, v: &dyn Verboser) -> Result<()> {
+    let prev = public_ip(http, v).await?;
     Command::new(path)
         .arg("-d")
         .kill_on_drop(true)
@@ -85,7 +87,7 @@ async fn disconect(http: &reqwest::Client, path: &Path) -> Result<()> {
         .await?;
     wait_until(
         || async {
-            let curr = public_ip(http).await?;
+            let curr = public_ip(http, v).await?;
             Ok(if curr == prev { None } else { Some(curr) })
         },
         VPN_POLL_INTERVAL,
@@ -95,8 +97,8 @@ async fn disconect(http: &reqwest::Client, path: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn connect(http: &reqwest::Client, path: &Path) -> Result<()> {
-    let prev = public_ip(http).await?;
+async fn connect(http: &reqwest::Client, path: &Path, v: &dyn Verboser) -> Result<()> {
+    let prev = public_ip(http, v).await?;
     Command::new(path)
         .args(["-c", "-g", random_country()])
         .kill_on_drop(true)
@@ -104,7 +106,7 @@ async fn connect(http: &reqwest::Client, path: &Path) -> Result<()> {
         .await?;
     wait_until(
         || async {
-            let curr = public_ip(http).await?;
+            let curr = public_ip(http, v).await?;
             Ok(if curr == prev { None } else { Some(curr) })
         },
         VPN_POLL_INTERVAL,
@@ -124,9 +126,9 @@ async fn rotate_vpn(ctx: &Context) -> Result<()> {
     let v = ctx.verboser();
     v.vpn_rotating();
     let http = ctx.http();
-    disconect(http, path).await?;
+    disconect(http, path, v).await?;
     v.debug("VPN disconnected");
-    connect(http, path).await?;
+    connect(http, path, v).await?;
     v.debug("VPN connected");
 
     Ok(())
