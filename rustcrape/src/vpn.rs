@@ -2,6 +2,7 @@ use anyhow::Result;
 // use chromiumoxide::Browser;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::process::Command;
@@ -62,65 +63,40 @@ async fn public_ip(client: &reqwest::Client) -> Result<String> {
     Ok(body.trim().to_string())
 }
 
-//  async fn wait_for_new_ip(prev: &str) -> Result<String> {
-//      wait_until(
-//          || async {
-//              let curr = public_ip().await?;
-//              Ok(if curr == prev { None } else { Some(curr) })
-//          },
-//          VPN_POLL_INTERVAL,
-//          VPN_READY_TIMEOUT,
-//      )
-//      .await
-//  }
-
 #[allow(async_fn_in_trait)]
 trait VpnHandle {
-    async fn disconect(&self, http: &reqwest::Client) -> Result<bool>;
-    async fn connect(&self, http: &reqwest::Client) -> Result<bool>;
+    async fn disconect(&self, http: &reqwest::Client) -> Result<()>;
+    async fn connect(&self, http: &reqwest::Client) -> Result<()>;
 }
 
-pub struct NoVpn;
-
-impl VpnHandle for NoVpn {
-    async fn disconect(&self, _: &reqwest::Client) -> Result<bool> {
-        Ok(false)
-    }
-
-    async fn connect(&self, _: &reqwest::Client) -> Result<bool> {
-        Ok(false)
-    }
-}
-
-pub struct UnawaitedVpn<'a>(&'a Path);
+struct UnawaitedVpn<'a>(&'a Path);
 
 impl VpnHandle for UnawaitedVpn<'_> {
-    async fn disconect(&self, _: &reqwest::Client) -> Result<bool> {
+    async fn disconect(&self, _: &reqwest::Client) -> Result<()> {
         Command::new(self.0)
             .arg("-d")
             .kill_on_drop(true)
             .status()
             .await?;
-        Ok(true)
+        Ok(())
     }
 
-    async fn connect(&self, _: &reqwest::Client) -> Result<bool> {
+    async fn connect(&self, _: &reqwest::Client) -> Result<()> {
         Command::new(self.0)
             .args(["-c", "-g", random_country()])
             .kill_on_drop(true)
             .status()
             .await?;
-        Ok(true)
+        Ok(())
     }
 }
 
-pub struct AwaitedVpn<'path> {
+struct AwaitedVpn<'path> {
     path: &'path Path,
-    //browser: &'browser Browser,
 }
 
 impl VpnHandle for AwaitedVpn<'_> {
-    async fn disconect(&self, http: &reqwest::Client) -> Result<bool> {
+    async fn disconect(&self, http: &reqwest::Client) -> Result<()> {
         let prev = public_ip(http).await?;
         Command::new(self.path)
             .arg("-d")
@@ -136,10 +112,10 @@ impl VpnHandle for AwaitedVpn<'_> {
             VPN_READY_TIMEOUT,
         )
         .await?;
-        Ok(true)
+        Ok(())
     }
 
-    async fn connect(&self, http: &reqwest::Client) -> Result<bool> {
+    async fn connect(&self, http: &reqwest::Client) -> Result<()> {
         let prev = public_ip(http).await?;
         Command::new(self.path)
             .args(["-c", "-g", random_country()])
@@ -156,7 +132,7 @@ impl VpnHandle for AwaitedVpn<'_> {
         )
         .await?;
 
-        Ok(true)
+        Ok(())
     }
 }
 
@@ -177,6 +153,17 @@ pub struct VpnRotator {
     path: Option<PathBuf>,
     frequency: u32,
     counter: Mutex<u32>,
+    rotating: AtomicBool,
+}
+
+/// Guarda RAII que libera el flag de rotacion al salir del ambito, incluso si
+/// la rotacion termina en error.
+struct RotationGuard<'a>(&'a AtomicBool);
+
+impl Drop for RotationGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl VpnRotator {
@@ -185,6 +172,7 @@ impl VpnRotator {
             path: path.map(PathBuf::from),
             frequency,
             counter: Mutex::new(0),
+            rotating: AtomicBool::new(false),
         }
     }
 
@@ -238,6 +226,18 @@ impl VpnRotator {
         if self.frequency == 0 {
             return Ok(false);
         }
+
+        // Ignorar peticiones de rotacion mientras ya hay una en curso para no
+        // lanzar comandos NordVPN solapados.
+        if self
+            .rotating
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            ctx.verboser().debug("VPN rotation already in progress, ignoring request");
+            return Ok(false);
+        }
+        let _guard = RotationGuard(&self.rotating);
 
         rotate_vpn(handle, ctx).await?;
         *self.counter.lock().unwrap() = 0;
