@@ -256,7 +256,6 @@
     flex-direction: column;
     gap: 12px;
     min-width: 0;
-    margin-top: 20px;
   }
 
   .panel h4 {
