@@ -164,7 +164,9 @@ async fn rotate_vpn(vpn_handle: &impl VpnHandle, ctx: &Context) -> Result<()> {
     ctx.verboser().vpn_rotating();
     let http = ctx.http();
     vpn_handle.disconect(http).await?;
-    vpn_handle.connect(http).await?;
+    ctx.verboser().debug("VPN disconnected");
+    vpn_handle.connect(http).await?;    
+    ctx.verboser().debug("VPN connected");
 
     Ok(())
 }

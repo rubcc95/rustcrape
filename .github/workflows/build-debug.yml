@@ -1,6 +1,8 @@
-name: Build (Release)
+name: Build (Debug)
 
 on:
+  push:
+    branches: [main, empresite-update]
   workflow_dispatch:
 
 jobs:
@@ -34,7 +36,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-debug-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -49,17 +51,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri app
-        run: npx tauri build
+      - name: Build Tauri app (debug)
+        run: npx tauri build --debug
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: Rustcrape-${{ runner.os }}-installers
-          path: target/release/bundle/
+          name: Rustcrape-${{ runner.os }}-debug-installers
+          path: target/debug/bundle/
 
       - name: Upload portable binary
         uses: actions/upload-artifact@v4
         with:
-          name: Rustcrape-${{ runner.os }}-portable
-          path: target/release/rustcrape-gui${{ runner.os == 'Windows' && '.exe' || '' }}
+          name: Rustcrape-${{ runner.os }}-debug-portable
+          path: target/debug/rustcrape-gui${{ runner.os == 'Windows' && '.exe' || '' }}

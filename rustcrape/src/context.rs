@@ -71,11 +71,13 @@ impl Context {
     }
 
     /// Informador de progreso compartido.
+    #[inline]
     pub fn verboser(&self) -> &dyn Verboser {
         self.verboser.as_ref()
     }
 
     /// Cliente HTTP compartido (cookie jar + cabeceras de navegador).
+    #[inline]
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }

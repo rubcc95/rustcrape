@@ -107,11 +107,11 @@ impl Border {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::verboser::DebugProgress;
+    use crate::verboser::NoVerboser;
 
     #[test]
     fn test_generate_grid_zoom_12() {
-        let result = SPAIN.generate_grid(12, &DebugProgress::default());
+        let result = SPAIN.generate_grid(12, &NoVerboser::default());
         assert!(result.is_ok());
         let points = result.unwrap();
         assert!(!points.is_empty(), "should generate at least one point");

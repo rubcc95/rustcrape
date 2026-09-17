@@ -35,6 +35,7 @@ pub trait Verboser: Send + Sync + 'static {
 
     fn warn(&self, msg: &str);
     fn error(&self, err: &str);
+    fn debug(&self, err: &str);
 
     fn is_cancelled(&self) -> bool {
         false
@@ -42,9 +43,9 @@ pub trait Verboser: Send + Sync + 'static {
 }
 
 #[derive(Clone, Default)]
-pub struct DebugProgress;
+pub struct NoVerboser;
 
-impl Verboser for DebugProgress {
+impl Verboser for NoVerboser {
     #[inline(always)]
     fn seeding_tasks(&self, _: usize, _: usize, _: usize) {}
     #[inline(always)]
@@ -95,6 +96,8 @@ impl Verboser for DebugProgress {
     fn warn(&self, _: &str) {}
     #[inline(always)]
     fn error(&self, _: &str) {}
+    #[inline(always)]
+    fn debug(&self, _: &str) {}
 }
 
 #[cfg(debug_assertions)]
@@ -180,5 +183,8 @@ impl Verboser for DebugVerboser {
     }
     fn error(&self, err: &str) {
         eprintln!("Error: {err}");
+    }
+    fn debug(&self, err: &str) {
+        eprintln!("Debug: {err}");
     }
 }

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rustcrape::types::Coincidence;
 use serde::Serialize;
@@ -33,7 +33,7 @@ impl TauriVerboser {
             },
         );
     }
-} 
+}
 
 impl rustcrape::verboser::Verboser for TauriVerboser {
     fn seeding_tasks(&self, checked: usize, valid: usize, total: usize) {
@@ -105,14 +105,14 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
     }
 
     fn searching_coincidences(&self) {
-        self.emit(
-            "searching_coincidences",
-            "Buscando coincidencias...".into(),
-        );
+        self.emit("searching_coincidences", "Buscando coincidencias...".into());
     }
 
     fn found_single_coincidence(&self) {
-        self.emit("found_single_coincidence", "Coincidencia única encontrada".into());
+        self.emit(
+            "found_single_coincidence",
+            "Coincidencia única encontrada".into(),
+        );
     }
 
     fn found_multiple_coincidences(&self) {
@@ -132,7 +132,10 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
     fn writing_coincidences(&self, output: &[Coincidence]) {
         self.emit(
             "writing_coincidences",
-            format!("Escribiendo {} coincidencias en la base de datos...", output.len()),
+            format!(
+                "Escribiendo {} coincidencias en la base de datos...",
+                output.len()
+            ),
         );
     }
 
@@ -143,7 +146,6 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         );
     }
 
-
     fn vpn_rotating(&self) {
         self.emit("vpn_rotating", "Rotando IP a través de NordVPN...".into());
     }
@@ -153,7 +155,10 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
     }
 
     fn vpn_not_available(&self) {
-        self.emit("warn", "NordVPN no disponible, continuando sin rotación de IP.".into());
+        self.emit(
+            "warn",
+            "NordVPN no disponible, continuando sin rotación de IP.".into(),
+        );
     }
 
     fn is_cancelled(&self) -> bool {
@@ -166,5 +171,12 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
 
     fn error(&self, err: &str) {
         self.emit("error", format!("Error: {err}"));
+    }
+
+
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn debug(&self, msg: &str) {
+        #[cfg(debug_assertions)]
+        self.emit("verbose", format!("Verbose: {msg}"));
     }
 }
