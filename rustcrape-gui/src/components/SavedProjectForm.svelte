@@ -72,19 +72,19 @@
     <Panel title="Estado">
       <div class="stats-grid">
         <div class="stat-card">
-          <span class="stat-value">--</span>
+          <span class="stat-value">{projectStore.stats.bounds_processed}</span>
           <span class="stat-label">Tareas analizadas</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">--</span>
+          <span class="stat-value">{projectStore.stats.bounds_remaining}</span>
           <span class="stat-label">Tareas restantes</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">--</span>
+          <span class="stat-value">{projectStore.stats.results_found}</span>
           <span class="stat-label">Resultados</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">--</span>
+          <span class="stat-value">{projectStore.stats.phones_found}</span>
           <span class="stat-label">Teléfonos</span>
         </div>
       </div>

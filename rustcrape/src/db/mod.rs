@@ -1,8 +1,8 @@
 pub mod mysql;
 pub mod sqlite;
 
-use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, GMapsConfig};
+use crate::storage::{Persistence, WriteOutcome};
+use crate::types::{Coincidence, DbConfig, GMapsConfig, ProjectStats};
 use crate::verboser::Verboser;
 use anyhow::Result;
 
@@ -35,10 +35,17 @@ impl PersistenceKind {
 }
 
 impl Persistence for PersistenceKind {
-    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64> {
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<WriteOutcome> {
         match self {
             PersistenceKind::Sqlite(p) => p.write_coincidences(source, data).await,
             PersistenceKind::Mysql(p) => p.write_coincidences(source, data).await,
+        }
+    }
+
+    async fn stats(&self) -> Result<ProjectStats> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.stats().await,
+            PersistenceKind::Mysql(p) => p.stats().await,
         }
     }
 

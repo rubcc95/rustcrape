@@ -120,6 +120,35 @@ struct DetailRaw {
     email: String,
     web: String,
     tfno: String,
+    legal_name: String,
+    tax_id: String,
+    legal_form: String,
+    sector: String,
+    incorporation_date: String,
+    last_change_date: String,
+    corporate_purpose: String,
+    activity: String,
+    cnae_activity: String,
+    company_status: String,
+}
+
+/// Devuelve el texto del `<span>` hermano siguiente al `h3` cuyo texto coincide
+/// exactamente con `label`. Devuelve vacio si la etiqueta no existe.
+fn field_by_label(doc: &scraper::Html, label: &str) -> String {
+    for h3 in doc.select(&sel("h3")) {
+        if text_of(h3) == label {
+            let mut sib = h3.next_sibling();
+            while let Some(s) = sib {
+                if let Some(el) = scraper::ElementRef::wrap(s) {
+                    if el.value().name() == "span" {
+                        return text_of(el);
+                    }
+                }
+                sib = s.next_sibling();
+            }
+        }
+    }
+    String::new()
 }
 
 fn extract_detail(html: &str) -> DetailRaw {
@@ -154,6 +183,16 @@ fn extract_detail(html: &str) -> DetailRaw {
         email,
         web,
         tfno,
+        legal_name: field_by_label(&doc, "Razón social"),
+        tax_id: field_by_label(&doc, "CIF"),
+        legal_form: field_by_label(&doc, "Forma jurídica"),
+        sector: field_by_label(&doc, "Sector"),
+        incorporation_date: field_by_label(&doc, "Fecha de constitución"),
+        last_change_date: field_by_label(&doc, "Fecha último cambio"),
+        corporate_purpose: field_by_label(&doc, "Objeto social"),
+        activity: field_by_label(&doc, "Actividad"),
+        cnae_activity: field_by_label(&doc, "Actividad CNAE"),
+        company_status: field_by_label(&doc, "Estado de la empresa"),
     }
 }
 
@@ -211,6 +250,15 @@ fn clean_web(raw: &str) -> Option<String> {
 }
 
 fn clean_tfno(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+fn clean_text(raw: &str) -> Option<String> {
     let s = raw.trim();
     if s.is_empty() {
         None
@@ -350,6 +398,16 @@ async fn scrape_detail(
         let email = clean_email(&raw.email);
         let web = clean_web(&raw.web);
         let tfno = clean_tfno(&raw.tfno);
+        let legal_name = clean_text(&raw.legal_name);
+        let tax_id = clean_text(&raw.tax_id);
+        let legal_form = clean_text(&raw.legal_form);
+        let sector = clean_text(&raw.sector);
+        let incorporation_date = clean_text(&raw.incorporation_date);
+        let last_change_date = clean_text(&raw.last_change_date);
+        let corporate_purpose = clean_text(&raw.corporate_purpose);
+        let activity = clean_text(&raw.activity);
+        let cnae_activity = clean_text(&raw.cnae_activity);
+        let company_status = clean_text(&raw.company_status);
 
         verboser.processed_coincidence(&raw.name, count);
 
@@ -359,6 +417,16 @@ async fn scrape_detail(
             web,
             tfno,
             source_url: clean_empresite_url(link),
+            legal_name,
+            tax_id,
+            legal_form,
+            sector,
+            incorporation_date,
+            last_change_date,
+            corporate_purpose,
+            activity,
+            cnae_activity,
+            company_status,
         }));
     }
 
@@ -557,6 +625,38 @@ mod tests {
         assert_eq!(d.email, "mailto:info@test.com");
         assert_eq!(d.web, "//www.test.com");
         assert_eq!(d.tfno, "911234567");
+    }
+
+    #[test]
+    fn test_extract_detail_datos_mercantiles() {
+        let html = r#"
+            <html><body>
+              <h1>Barcos Y Amarres Sl</h1>
+              <a class="email" href="mailto:info@test.com">email</a>
+              <div class="flex flex-col gap-2"><h3>Razón social</h3><span>Barcos Y Amarres Sl</span></div>
+              <div class="flex flex-col gap-2"><h3>CIF</h3><span>B97564058</span></div>
+              <div class="flex flex-col gap-2"><h3>Forma jurídica</h3><span>Sociedad limitada unipersonal</span></div>
+              <div class="flex flex-col gap-2"><h3>Sector</h3><span>Industria</span></div>
+              <div class="flex flex-col gap-2"><h3>Fecha de constitución</h3><span>23-6-2005</span></div>
+              <div class="flex flex-col gap-2"><h3>Fecha último cambio</h3><span>23-8-2026</span></div>
+              <div class="flex flex-col gap-2"><h3>Objeto social</h3><span>Explotacion y mantenimiento</span></div>
+              <div class="flex flex-col gap-2"><h3>Actividad</h3><span>Reparación, mantenimiento de buques</span></div>
+              <div class="flex flex-col gap-2"><h3>Actividad CNAE</h3><span>3315 - Reparación y mantenimiento</span></div>
+              <div class="flex flex-col gap-2"><h3>Estado de la empresa</h3><span>Viva</span></div>
+            </body></html>
+        "#;
+        let d = extract_detail(html);
+        assert_eq!(d.name, "Barcos Y Amarres Sl");
+        assert_eq!(d.legal_name, "Barcos Y Amarres Sl");
+        assert_eq!(d.tax_id, "B97564058");
+        assert_eq!(d.legal_form, "Sociedad limitada unipersonal");
+        assert_eq!(d.sector, "Industria");
+        assert_eq!(d.incorporation_date, "23-6-2005");
+        assert_eq!(d.last_change_date, "23-8-2026");
+        assert_eq!(d.corporate_purpose, "Explotacion y mantenimiento");
+        assert_eq!(d.activity, "Reparación, mantenimiento de buques");
+        assert_eq!(d.cnae_activity, "3315 - Reparación y mantenimiento");
+        assert_eq!(d.company_status, "Viva");
     }
 
     #[test]

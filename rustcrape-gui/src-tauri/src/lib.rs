@@ -25,6 +25,7 @@ pub fn run() {
             commands::get_last_selected,
             commands::set_last_selected,
             commands::run_scraping,
+            commands::load_project_stats,
             commands::cancel_scraping,
             commands::pick_executable,
             commands::load_global_settings,

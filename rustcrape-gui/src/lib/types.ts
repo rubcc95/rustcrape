@@ -111,6 +111,8 @@ export interface GlobalSettings {
 export interface VerboserPayload {
   kind: string;
   message: string;
+  inserted?: number;
+  inserted_with_phone?: number;
 }
 
 export interface LogEntry {

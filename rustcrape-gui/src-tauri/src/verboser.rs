@@ -9,6 +9,10 @@ use tauri::Emitter;
 pub struct VerboserPayload {
     pub kind: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserted: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserted_with_phone: Option<u64>,
 }
 
 pub struct TauriVerboser {
@@ -25,11 +29,23 @@ impl TauriVerboser {
     }
 
     fn emit(&self, kind: &str, message: String) {
+        self.emit_with(kind, message, None, None);
+    }
+
+    fn emit_with(
+        &self,
+        kind: &str,
+        message: String,
+        inserted: Option<u64>,
+        inserted_with_phone: Option<u64>,
+    ) {
         let _ = self.app_handle.emit(
             "verboser-event",
             VerboserPayload {
                 kind: kind.to_string(),
                 message,
+                inserted,
+                inserted_with_phone,
             },
         );
     }
@@ -139,10 +155,12 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         );
     }
 
-    fn written_coincidences(&self, count: i32) {
-        self.emit(
+    fn written_coincidences(&self, inserted: u64, inserted_with_phone: u64) {
+        self.emit_with(
             "written_coincidences",
-            format!("{count} coincidencias escritas en la base de datos."),
+            format!("{inserted} coincidencias escritas en la base de datos."),
+            Some(inserted),
+            Some(inserted_with_phone),
         );
     }
 

@@ -1,10 +1,21 @@
-use crate::types::Coincidence;
+use crate::types::{Coincidence, ProjectStats};
 use anyhow::Result;
+
+/// Resultado de persistir un lote de coincidencias: cuantas se insertaron
+/// realmente y cuantas de ellas aportan telefono.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WriteOutcome {
+    pub inserted: u64,
+    pub inserted_with_phone: u64,
+}
 
 #[allow(async_fn_in_trait)]
 pub trait Persistence: Send + Sync {
     /// Escribe coincidencias etiquetadas con el target que las produjo.
-    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64>;
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<WriteOutcome>;
+
+    /// Estado agregado de la base de datos (tareas, resultados y telefonos).
+    async fn stats(&self) -> Result<ProjectStats>;
 
     // --- Google Maps: rejilla de bounds ---
     async fn has_bounds(&self) -> Result<bool>;

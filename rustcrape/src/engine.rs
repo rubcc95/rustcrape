@@ -164,11 +164,11 @@ async fn run_target<S: Scraper>(
             Ok(result) => {
                 ctx.verboser().writing_coincidences(&result.coincidences);
                 let items = result.coincidences.len() as i32;
-                let written = match persist
+                let outcome = match persist
                     .write_coincidences(scraper.name(), result.coincidences)
                     .await
                 {
-                    Ok(written) => written as i32,
+                    Ok(outcome) => outcome,
                     Err(err) => {
                         ctx.verboser().error(&format!("Error writing coincidences: {err}"));
                         let _ = scraper.release(persist, task_id, None).await;
@@ -176,9 +176,11 @@ async fn run_target<S: Scraper>(
                         continue;
                     }
                 };
-                ctx.verboser().written_coincidences(written);
+                ctx.verboser()
+                    .written_coincidences(outcome.inserted, outcome.inserted_with_phone);
+                let duplicated = items - outcome.inserted as i32;
                 scraper
-                    .release(persist, task_id, Some((items, items - written)))
+                    .release(persist, task_id, Some((items, duplicated)))
                     .await
                     .ok();
                 ctx.verboser().released_task();

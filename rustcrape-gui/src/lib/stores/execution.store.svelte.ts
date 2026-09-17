@@ -7,6 +7,7 @@ import {
   onScrapingFinished,
 } from "../tauri";
 import { appStore } from "./app.store.svelte";
+import { projectStore } from "./project.store.svelte";
 
 class ExecutionStore {
   isRunning = $state(false);
@@ -34,8 +35,11 @@ class ExecutionStore {
     });
   }
 
-  async startExecution(config: Config): Promise<void> {
+  async startExecution(config: Config, seedStats = true): Promise<void> {
     this.resetExecution();
+    if (seedStats) {
+      this.stats = { ...projectStore.stats };
+    }
     this.configSnapshot = JSON.parse(JSON.stringify(config));
     this.isRunning = true;
     appStore.navigate("execution");
@@ -69,7 +73,12 @@ class ExecutionStore {
         this.addLog("error", `Error al cancelar: ${e}`);
       }
     }
+    this.syncStatsToProject();
     appStore.navigate("project");
+  }
+
+  private syncStatsToProject(): void {
+    projectStore.stats = { ...this.stats };
   }
 
   resetExecution(): void {
@@ -91,6 +100,16 @@ class ExecutionStore {
 
     onVerboserEvent((payload) => {
       this.addLog(payload.kind, payload.message);
+      if (payload.kind === "released_task") {
+        this.stats.bounds_processed += 1;
+        this.stats.bounds_remaining = Math.max(
+          0,
+          this.stats.bounds_remaining - 1
+        );
+      } else if (payload.kind === "written_coincidences") {
+        this.stats.results_found += payload.inserted ?? 0;
+        this.stats.phones_found += payload.inserted_with_phone ?? 0;
+      }
     }).then((fn) => unlisteners.push(fn));
 
     onScrapingStarted(() => {
@@ -101,6 +120,7 @@ class ExecutionStore {
       this.isRunning = false;
       this.isCancelling = false;
       this.addLog("info", "Scraping finalizado");
+      this.syncStatsToProject();
     }).then((fn) => unlisteners.push(fn));
 
     return () => {
@@ -111,10 +131,11 @@ class ExecutionStore {
   async resumeExecution(): Promise<void> {
     if (!this.configSnapshot) return;
     const config = JSON.parse(JSON.stringify(this.configSnapshot));
-    await this.startExecution(config);
+    await this.startExecution(config, false);
   }
 
   returnToProject(): void {
+    this.syncStatsToProject();
     appStore.navigate("project");
   }
 }

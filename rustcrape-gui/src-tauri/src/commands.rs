@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rustcrape::types::{Config, DbConfig};
+use rustcrape::db::PersistenceKind;
+use rustcrape::storage::Persistence;
+use rustcrape::types::{Config, DbConfig, ProjectStats};
+use rustcrape::verboser::NoVerboser;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -88,11 +91,52 @@ pub fn save_global_settings(
         .map_err(|e| e.to_string())
 }
 
+/// Resuelve rutas SQLite relativas contra el directorio de datos locales de la
+/// app. El resto de configuraciones se devuelven tal cual.
+fn resolve_db_config(db: &DbConfig, data_dir: &Path) -> DbConfig {
+    match db {
+        DbConfig::Sqlite { path: Some(p) } if !Path::new(p).is_absolute() => {
+            std::fs::create_dir_all(data_dir).ok();
+            DbConfig::Sqlite {
+                path: Some(data_dir.join(p).to_string_lossy().to_string()),
+            }
+        }
+        DbConfig::Sqlite { path: None } => {
+            std::fs::create_dir_all(data_dir).ok();
+            DbConfig::Sqlite {
+                path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
+            }
+        }
+        other => other.clone(),
+    }
+}
+
+#[tauri::command]
+pub async fn load_project_stats(
+    state: State<'_, AppState>,
+    config: Config,
+) -> Result<ProjectStats, String> {
+    let resolved_db = resolve_db_config(&config.db, &state.local_data_dir);
+
+    // No crear la base de datos solo por consultar sus estadisticas.
+    if let DbConfig::Sqlite { path: Some(p) } = &resolved_db {
+        if !Path::new(p).exists() {
+            return Ok(ProjectStats::default());
+        }
+    }
+
+    let mut gmaps = config.gmaps.clone();
+    let persist = PersistenceKind::create(&resolved_db, &mut gmaps, &NoVerboser)
+        .await
+        .map_err(|e| e.to_string())?;
+    persist.stats().await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn run_scraping(
     app: AppHandle,
     state: State<'_, AppState>,
-    config: Config,
+    mut config: Config,
 ) -> Result<(), String> {
     use std::future::Future;
     /// Wraps a `Future` and marks it as `Send` to work around the limitation
@@ -138,27 +182,8 @@ pub async fn run_scraping(
     let app_handle = app.clone();
 
     // Resolve SQLite path against app_local_data_dir
-    let config = match &config.db {
-        DbConfig::Sqlite { path: Some(p) } if !Path::new(p).is_absolute() => {
-            let data_dir = state.local_data_dir.clone();
-            std::fs::create_dir_all(&data_dir).ok();
-            let mut c = config.clone();
-            c.db = DbConfig::Sqlite {
-                path: Some(data_dir.join(p).to_string_lossy().to_string()),
-            };
-            c
-        }
-        DbConfig::Sqlite { path: None } => {
-            let data_dir = state.local_data_dir.clone();
-            std::fs::create_dir_all(&data_dir).ok();
-            let mut c = config.clone();
-            c.db = DbConfig::Sqlite {
-                path: Some(data_dir.join("rustcrape.db").to_string_lossy().to_string()),
-            };
-            c
-        }
-        _ => config,
-    };
+    let resolved_db = resolve_db_config(&config.db, &state.local_data_dir);
+    config.db = resolved_db;
 
     let future = SpawnUnsafe(async move {
         app_handle.emit("scraping-started", ()).ok();

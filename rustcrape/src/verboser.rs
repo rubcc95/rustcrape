@@ -26,7 +26,7 @@ pub trait Verboser: Send + Sync + 'static {
     fn found_multiple_coincidences(&self);
     fn processed_coincidence(&self, name: &str, count: usize);
     fn writing_coincidences(&self, output: &[Coincidence]);
-    fn written_coincidences(&self, count: i32);
+    fn written_coincidences(&self, inserted: u64, inserted_with_phone: u64);
 
     // VPN
     fn vpn_rotating(&self) {}
@@ -85,7 +85,7 @@ impl Verboser for NoVerboser {
     #[inline(always)]
     fn writing_coincidences(&self, _: &[Coincidence]) {}
     #[inline(always)]
-    fn written_coincidences(&self, _: i32) {}
+    fn written_coincidences(&self, _: u64, _: u64) {}
     #[inline(always)]
     fn vpn_rotating(&self) {}
     #[inline(always)]
@@ -166,8 +166,10 @@ impl Verboser for DebugVerboser {
     fn writing_coincidences(&self, output: &[Coincidence]) {
         eprintln!("Writing {} coincidences to database...", output.len());
     }
-    fn written_coincidences(&self, count: i32) {
-        eprintln!("Written {count} coincidences to database.");
+    fn written_coincidences(&self, inserted: u64, inserted_with_phone: u64) {
+        eprintln!(
+            "Written {inserted} coincidences to database ({inserted_with_phone} with phone)."
+        );
     }
     fn vpn_rotating(&self) {
         eprintln!("VPN: rotating IP...");

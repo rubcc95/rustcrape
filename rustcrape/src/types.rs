@@ -22,7 +22,12 @@ mod zero_is_none {
 }
 
 /// Resultado unico de un scrape, comun a todos los targets.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Los campos marcados como `Option` no siempre estan disponibles: Google Maps
+/// solo rellena `name`, `email`, `web`, `tfno` y `source_url`, mientras que
+/// Empresite anade ademas los datos mercantiles (razon social, CIF, forma
+/// juridica, etc.).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Coincidence {
     pub name: String,
     pub email: Option<String>,
@@ -30,6 +35,46 @@ pub struct Coincidence {
     pub tfno: Option<String>,
     /// URL de origen (ficha de Google Maps, pagina de Empresite, etc.).
     pub source_url: String,
+    /// Razon social (Empresite).
+    pub legal_name: Option<String>,
+    /// CIF / NIF (Empresite).
+    pub tax_id: Option<String>,
+    /// Forma juridica (Empresite).
+    pub legal_form: Option<String>,
+    /// Sector (Empresite).
+    pub sector: Option<String>,
+    /// Fecha de constitucion (Empresite).
+    pub incorporation_date: Option<String>,
+    /// Fecha del ultimo cambio en el registro (Empresite).
+    pub last_change_date: Option<String>,
+    /// Objeto social (Empresite).
+    pub corporate_purpose: Option<String>,
+    /// Actividad declarada (Empresite).
+    pub activity: Option<String>,
+    /// Actividad CNAE (Empresite).
+    pub cnae_activity: Option<String>,
+    /// Estado de la empresa (Empresite).
+    pub company_status: Option<String>,
+}
+
+impl Coincidence {
+    /// Indica si la coincidencia aporta algun dato util (contacto o datos
+    /// mercantiles). Se usa para descartar filas vacias antes de persistir.
+    pub fn has_any_data(&self) -> bool {
+        self.web.is_some()
+            || self.email.is_some()
+            || self.tfno.is_some()
+            || self.legal_name.is_some()
+            || self.tax_id.is_some()
+            || self.legal_form.is_some()
+            || self.sector.is_some()
+            || self.incorporation_date.is_some()
+            || self.last_change_date.is_some()
+            || self.corporate_purpose.is_some()
+            || self.activity.is_some()
+            || self.cnae_activity.is_some()
+            || self.company_status.is_some()
+    }
 }
 
 /// Modo de ejecucion cuando hay varios targets habilitados.
@@ -464,4 +509,16 @@ pub struct IterationStats {
     pub inserted: u64,
     pub duplicated: u64,
     pub empty: u64,
+}
+
+/// Estado agregado de la base de datos de un proyecto: tareas completadas y
+/// pendientes (bounds de Google Maps + paginas de Empresite), resultados
+/// almacenados y resultados con telefono.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectStats {
+    pub bounds_total: u64,
+    pub bounds_processed: u64,
+    pub bounds_remaining: u64,
+    pub results_found: u64,
+    pub phones_found: u64,
 }

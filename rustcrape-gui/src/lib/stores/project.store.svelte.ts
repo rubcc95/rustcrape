@@ -5,12 +5,14 @@ import type {
   Config,
   DbConfig,
   EmpresiteFilters,
+  IterationStats,
 } from "../types";
 import {
   listConfigs,
   saveConfig,
   deleteConfig,
   setLastSelected,
+  loadProjectStats,
 } from "../tauri";
 import { isMysql } from "../types";
 import { appStore } from "./app.store.svelte";
@@ -54,6 +56,16 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
   };
 }
 
+function emptyStats(): IterationStats {
+  return {
+    bounds_total: 0,
+    bounds_processed: 0,
+    bounds_remaining: 0,
+    results_found: 0,
+    phones_found: 0,
+  };
+}
+
 function defaultProjectDraft(): ProjectDraft {
   return {
     name: "",
@@ -76,6 +88,7 @@ class ProjectStore {
   currentProject = $state<SavedConfig | null>(null);
   executionConfig = $state<ExecutionConfig>(defaultExecutionConfig());
   projectDraft = $state<ProjectDraft>(defaultProjectDraft());
+  stats = $state<IterationStats>(emptyStats());
 
   get isNewProject(): boolean {
     return this.currentProject === null;
@@ -199,12 +212,23 @@ class ProjectStore {
       db_user: useMysql ? db.user : "root",
       db_password: useMysql ? db.password : "",
     };
+    this.loadStats(project.config);
+  }
+
+  async loadStats(config: Config): Promise<void> {
+    try {
+      this.stats = await loadProjectStats(config);
+    } catch (e) {
+      console.error("Error loading project stats:", e);
+      this.stats = emptyStats();
+    }
   }
 
   resetToNew(): void {
     this.currentProject = null;
     this.executionConfig = defaultExecutionConfig();
     this.projectDraft = defaultProjectDraft();
+    this.stats = emptyStats();
   }
 
   async loadProjects(): Promise<void> {

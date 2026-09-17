@@ -364,6 +364,26 @@ struct DetailRaw {
     web: String,
     #[serde(default)]
     tfno: String,
+    #[serde(default)]
+    legal_name: String,
+    #[serde(default)]
+    tax_id: String,
+    #[serde(default)]
+    legal_form: String,
+    #[serde(default)]
+    sector: String,
+    #[serde(default)]
+    incorporation_date: String,
+    #[serde(default)]
+    last_change_date: String,
+    #[serde(default)]
+    corporate_purpose: String,
+    #[serde(default)]
+    activity: String,
+    #[serde(default)]
+    cnae_activity: String,
+    #[serde(default)]
+    company_status: String,
 }
 
 /// Extrae los datos crudos de una ficha via evaluacion JS.
@@ -373,11 +393,30 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
         const emailEl = document.querySelector('a.email[href^="mailto:"]');
         const webEl = document.querySelector('a.url[href]');
         const telEl = document.querySelector('span.tel span.value');
+        const field = (label) => {
+            for (const h of document.querySelectorAll('h3')) {
+                if (h.textContent.trim() === label) {
+                    const el = h.nextElementSibling;
+                    return el ? el.textContent.trim() : '';
+                }
+            }
+            return '';
+        };
         return {
             name: name,
             email: emailEl ? emailEl.getAttribute('href') : '',
             web: webEl ? webEl.getAttribute('href') : '',
-            tfno: telEl ? telEl.textContent.trim() : ''
+            tfno: telEl ? telEl.textContent.trim() : '',
+            legal_name: field('Razón social'),
+            tax_id: field('CIF'),
+            legal_form: field('Forma jurídica'),
+            sector: field('Sector'),
+            incorporation_date: field('Fecha de constitución'),
+            last_change_date: field('Fecha último cambio'),
+            corporate_purpose: field('Objeto social'),
+            activity: field('Actividad'),
+            cnae_activity: field('Actividad CNAE'),
+            company_status: field('Estado de la empresa')
         };
     })()"#;
     Ok(page.evaluate(js).await?.into_value()?)
@@ -436,6 +475,16 @@ fn clean_web(raw: &str) -> Option<String> {
 
 /// Limpia el telefono: recorta espacios.
 fn clean_tfno(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+/// Limpia un texto generico (datos mercantiles): recorta espacios.
+fn clean_text(raw: &str) -> Option<String> {
     let s = raw.trim();
     if s.is_empty() {
         None
@@ -563,6 +612,16 @@ async fn scrape_detail(
         let email = clean_email(&raw.email);
         let web = clean_web(&raw.web);
         let tfno = clean_tfno(&raw.tfno);
+        let legal_name = clean_text(&raw.legal_name);
+        let tax_id = clean_text(&raw.tax_id);
+        let legal_form = clean_text(&raw.legal_form);
+        let sector = clean_text(&raw.sector);
+        let incorporation_date = clean_text(&raw.incorporation_date);
+        let last_change_date = clean_text(&raw.last_change_date);
+        let corporate_purpose = clean_text(&raw.corporate_purpose);
+        let activity = clean_text(&raw.activity);
+        let cnae_activity = clean_text(&raw.cnae_activity);
+        let company_status = clean_text(&raw.company_status);
 
         verboser.processed_coincidence(&raw.name, count);
 
@@ -573,6 +632,16 @@ async fn scrape_detail(
             web,
             tfno,
             source_url: clean_empresite_url(link),
+            legal_name,
+            tax_id,
+            legal_form,
+            sector,
+            incorporation_date,
+            last_change_date,
+            corporate_purpose,
+            activity,
+            cnae_activity,
+            company_status,
         }));
     }
 

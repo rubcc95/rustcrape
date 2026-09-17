@@ -1,5 +1,5 @@
-use crate::storage::Persistence;
-use crate::types::{Coincidence, DbConfig, GMapsConfig};
+use crate::storage::{Persistence, WriteOutcome};
+use crate::types::{Coincidence, DbConfig, GMapsConfig, ProjectStats};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::{MySqlPool, Row};
@@ -182,6 +182,30 @@ impl MysqlPersistence {
             .execute(&self.pool)
             .await?;
         }
+
+        const NEW_COINCIDENCE_COLUMNS: &[(&str, &str)] = &[
+            ("legal_name", "VARCHAR(255) DEFAULT NULL"),
+            ("tax_id", "VARCHAR(20) DEFAULT NULL"),
+            ("legal_form", "VARCHAR(100) DEFAULT NULL"),
+            ("sector", "VARCHAR(100) DEFAULT NULL"),
+            ("incorporation_date", "VARCHAR(20) DEFAULT NULL"),
+            ("last_change_date", "VARCHAR(20) DEFAULT NULL"),
+            ("corporate_purpose", "TEXT"),
+            ("activity", "VARCHAR(255) DEFAULT NULL"),
+            ("cnae_activity", "VARCHAR(255) DEFAULT NULL"),
+            ("company_status", "VARCHAR(50) DEFAULT NULL"),
+        ];
+
+        for (name, def) in NEW_COINCIDENCE_COLUMNS {
+            if !existing.contains(*name) {
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER TABLE coincidences ADD COLUMN {} {}",
+                    name, def
+                )))
+                .execute(&self.pool)
+                .await?;
+            }
+        }
         Ok(())
     }
 
@@ -203,6 +227,16 @@ impl MysqlPersistence {
                 source_url TEXT DEFAULT '',
                 source VARCHAR(50) NOT NULL DEFAULT '',
                 creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                legal_name VARCHAR(255) DEFAULT NULL,
+                tax_id VARCHAR(20) DEFAULT NULL,
+                legal_form VARCHAR(100) DEFAULT NULL,
+                sector VARCHAR(100) DEFAULT NULL,
+                incorporation_date VARCHAR(20) DEFAULT NULL,
+                last_change_date VARCHAR(20) DEFAULT NULL,
+                corporate_purpose TEXT,
+                activity VARCHAR(255) DEFAULT NULL,
+                cnae_activity VARCHAR(255) DEFAULT NULL,
+                company_status VARCHAR(50) DEFAULT NULL,
                 UNIQUE KEY uq_datos (name, email, web, tfno)
             )",
         )
@@ -377,19 +411,30 @@ impl MysqlPersistence {
         }
         Ok(())
     }
+
+    /// Numero de coincidencias almacenadas que aportan telefono.
+    async fn count_phones(&self) -> Result<i64> {
+        let row = sqlx::query(
+            "SELECT CAST(COUNT(*) AS SIGNED) AS total FROM coincidences \
+             WHERE tfno IS NOT NULL AND tfno <> ''",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get("total"))
+    }
 }
 
 impl Persistence for MysqlPersistence {
-    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<u64> {
-        let filtered: Vec<Coincidence> = data
-            .into_iter()
-            .filter(|c| c.web.is_some() || c.email.is_some() || c.tfno.is_some())
-            .collect();
+    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<WriteOutcome> {
+        let filtered: Vec<Coincidence> = data.into_iter().filter(|c| c.has_any_data()).collect();
         if filtered.is_empty() {
-            return Ok(0);
+            return Ok(WriteOutcome::default());
         }
+        let phones_before = self.count_phones().await?;
         let mut builder = sqlx::QueryBuilder::new(
-            "INSERT IGNORE INTO coincidences (name, web, email, tfno, source_url, source) ",
+            "INSERT IGNORE INTO coincidences (name, web, email, tfno, source_url, source, \
+             legal_name, tax_id, legal_form, sector, incorporation_date, last_change_date, \
+             corporate_purpose, activity, cnae_activity, company_status) ",
         );
         builder.push_values(filtered, |mut b, c| {
             b.push_bind(c.name);
@@ -398,9 +443,57 @@ impl Persistence for MysqlPersistence {
             b.push_bind(c.tfno.unwrap_or_default());
             b.push_bind(c.source_url);
             b.push_bind(source);
+            b.push_bind(c.legal_name);
+            b.push_bind(c.tax_id);
+            b.push_bind(c.legal_form);
+            b.push_bind(c.sector);
+            b.push_bind(c.incorporation_date);
+            b.push_bind(c.last_change_date);
+            b.push_bind(c.corporate_purpose);
+            b.push_bind(c.activity);
+            b.push_bind(c.cnae_activity);
+            b.push_bind(c.company_status);
         });
         let result = builder.build().execute(&self.pool).await?;
-        Ok(result.rows_affected())
+        let inserted = result.rows_affected();
+        let phones_after = self.count_phones().await?;
+        Ok(WriteOutcome {
+            inserted,
+            inserted_with_phone: (phones_after - phones_before).max(0) as u64,
+        })
+    }
+
+    async fn stats(&self) -> Result<ProjectStats> {
+        let bounds = sqlx::query(
+            "SELECT CAST(COUNT(*) AS SIGNED) AS total, \
+             CAST(COALESCE(SUM(items IS NOT NULL), 0) AS SIGNED) AS done FROM bounds",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let pages = sqlx::query(
+            "SELECT CAST(COUNT(*) AS SIGNED) AS total, \
+             CAST(COALESCE(SUM(items IS NOT NULL), 0) AS SIGNED) AS done FROM empresite_pages",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let coincidences = sqlx::query(
+            "SELECT CAST(COUNT(*) AS SIGNED) AS total, \
+             CAST(COALESCE(SUM(CASE WHEN tfno IS NOT NULL AND tfno <> '' THEN 1 ELSE 0 END), 0) AS SIGNED) AS phones \
+             FROM coincidences",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let total = bounds.get::<i64, _>("total") + pages.get::<i64, _>("total");
+        let processed = bounds.get::<i64, _>("done") + pages.get::<i64, _>("done");
+
+        Ok(ProjectStats {
+            bounds_total: total as u64,
+            bounds_processed: processed as u64,
+            bounds_remaining: (total - processed).max(0) as u64,
+            results_found: coincidences.get::<i64, _>("total") as u64,
+            phones_found: coincidences.get::<i64, _>("phones") as u64,
+        })
     }
 
     async fn has_bounds(&self) -> Result<bool> {

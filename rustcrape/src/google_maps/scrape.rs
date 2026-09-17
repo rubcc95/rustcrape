@@ -245,6 +245,7 @@ async fn scrape_single(
                 email,
                 web,
                 source_url: clean_maps_url(&current_url),
+                ..Default::default()
             }]);
         }
     }
@@ -410,6 +411,7 @@ async fn scrape_feed(
                         email,
                         web,
                         source_url: clean_maps_url(&href),
+                        ..Default::default()
                     });
                 }
                 Err(e) => {

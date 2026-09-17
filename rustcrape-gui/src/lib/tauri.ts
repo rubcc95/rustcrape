@@ -6,6 +6,7 @@ import type {
   GlobalSettings,
   VerboserPayload,
   Announcement,
+  IterationStats,
 } from "./types";
 
 // ── Config CRUD ──
@@ -44,6 +45,10 @@ export async function checkAnnouncement(): Promise<Announcement | null> {
 
 export async function runScraping(config: Config): Promise<void> {
   return invoke("run_scraping", { config });
+}
+
+export async function loadProjectStats(config: Config): Promise<IterationStats> {
+  return invoke("load_project_stats", { config });
 }
 
 export async function cancelScraping(): Promise<void> {
