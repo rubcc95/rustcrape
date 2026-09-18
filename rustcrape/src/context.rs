@@ -64,6 +64,12 @@ impl Context {
             .build()
             .expect("no se pudo construir el cliente HTTP global");
 
+        verboser.debug(&format!(
+            "Context: HTTP client ready (browser-like headers, cookie store); \
+             vpn_configured={}, ip_rotation_frequency={frequency}",
+            nordvpn_path.is_some()
+        ));
+
         Self {
             verboser: Arc::new(verboser),
             vpn: Arc::new(VpnRotator::new(nordvpn_path, frequency)),

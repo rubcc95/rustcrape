@@ -20,19 +20,32 @@ fn clean_maps_url(url: &str) -> String {
     base.strip_suffix('/').unwrap_or(base).to_string()
 }
 
-async fn accept_cookies(page: &Page) -> Result<()> {
-    let el = accept_cookies_button(page).await?;
-    if let Some(el) = el {
-        el.click().await?;
+async fn accept_cookies(page: &Page, verboser: &dyn Verboser) -> Result<()> {
+    verboser.debug("Cookies: looking for consent banner");
+    let el = accept_cookies_button(page, verboser).await?;
+    match el {
+        Some(el) => {
+            verboser.debug("Cookies: accept button located, clicking");
+            el.click().await?;
+            verboser.debug("Cookies: consent accepted");
+        }
+        None => verboser.debug("Cookies: no consent banner found"),
     }
     Ok(())
 }
 
-async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
+async fn accept_cookies_button(
+    page: &Page,
+    verboser: &dyn Verboser,
+) -> Result<Option<Element>> {
     // Try buttons: button, [role="button"], input[type="submit"], input[type="button"]
     let buttons = page
         .find_elements("button, [role=\"button\"], input[type=\"submit\"], input[type=\"button\"]")
         .await?;
+    verboser.debug(&format!(
+        "Cookies: scanning {} candidate buttons",
+        buttons.len()
+    ));
 
     for btn in buttons {
         let t = {
@@ -57,11 +70,13 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
             || t.contains("accepteer")
             || t.contains("alle akzeptieren")
         {
+            verboser.debug(&format!("Cookies: match by button text: {t:?}"));
             return Ok(Some(btn));
         }
     }
 
     // Try aria-label elements
+    verboser.debug("Cookies: no text match; trying aria-label");
     let aria_els = page.find_elements("[aria-label]").await?;
     for el in aria_els {
         if let Some(label) = el.attribute("aria-label").await? {
@@ -71,12 +86,14 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
                 || lower.contains("aceptar todo")
                 || lower.contains("accept all")
             {
+                verboser.debug(&format!("Cookies: match by aria-label: {lower:?}"));
                 return Ok(Some(el));
             }
         }
     }
 
     // Try form submit buttons
+    verboser.debug("Cookies: no aria-label match; trying form submits");
     let forms = page.find_elements("form").await?;
     for form in &forms {
         if let Ok(submit_btn) = form
@@ -100,6 +117,7 @@ async fn accept_cookies_button(page: &Page) -> Result<Option<Element>> {
                 }
             };
             if t.contains("aceptar") || t.contains("accept") {
+                verboser.debug(&format!("Cookies: match by form submit: {t:?}"));
                 return Ok(Some(submit_btn));
             }
         }
@@ -146,7 +164,9 @@ fn extract_phone_suffix(label: &str) -> Option<String> {
 
 async fn extract_current_result(
     page: &Page,
+    verboser: &dyn Verboser,
 ) -> Result<(Option<String>, Option<String>, Option<String>)> {
+    verboser.debug("Extraction: looking for phone/email/website in the panel");
     let phone = {
         let sel = concat!(
             "button[data-tooltip*=\"teléfono\"], ",
@@ -170,6 +190,11 @@ async fn extract_current_result(
         }
     };
 
+    verboser.debug(&format!(
+        "Extraction: phone={}",
+        phone.as_deref().unwrap_or("<ninguno>")
+    ));
+
     let email = match page.find_element("a[href^=\"mailto:\"]").await {
         Ok(el) => el
             .attribute("href")
@@ -181,6 +206,11 @@ async fn extract_current_result(
             err => return Err(anyhow::Error::new(err).context("failed to find phone element")),
         },
     };
+
+    verboser.debug(&format!(
+        "Extraction: email={}",
+        email.as_deref().unwrap_or("<ninguno>")
+    ));
 
     let web = {
         let sel = concat!(
@@ -220,6 +250,11 @@ async fn extract_current_result(
         }
     };
 
+    verboser.debug(&format!(
+        "Extraction: website={}",
+        web.as_deref().unwrap_or("<ninguna>")
+    ));
+
     Ok((phone, email, web))
 }
 
@@ -230,14 +265,21 @@ async fn scrape_single(
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
     let _ = params;
+    verboser.debug("Single mode: looking for a single-place panel");
     verboser.found_coincidences(Some(1));
-    tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+    let delay = random_delay(config.delay_min, config.delay_max);
+    verboser.debug(&format!("Single mode: waiting {delay:?} before extracting"));
+    tokio::time::sleep(delay).await;
     if page.find_element("h1.DUwDvf").await.is_ok() {
+        verboser.debug("Single mode: h1.DUwDvf title found");
         let name_js = r#"( () => { const el = document.querySelector('h1.DUwDvf'); return el ? el.textContent.trim() : ''; })() "#;
         let name: String = page.evaluate(name_js).await?.into_value()?;
-        let (tfno, email, web) = extract_current_result(page).await?;
+        let (tfno, email, web) = extract_current_result(page, verboser).await?;
         let current_url: String = page.evaluate("window.location.href").await?.into_value()?;
         if !name.is_empty() {
+            verboser.debug(&format!(
+                "Single mode: result '{name}' (url={current_url})"
+            ));
             verboser.processed_coincidence(&name, 1);
             return Ok(vec![Coincidence {
                 name,
@@ -248,6 +290,9 @@ async fn scrape_single(
                 ..Default::default()
             }]);
         }
+        verboser.debug("Single mode: empty title, no result");
+    } else {
+        verboser.debug("Single mode: place title not found");
     }
     Ok(Vec::new())
 }
@@ -333,29 +378,47 @@ async fn scrape_feed(
     config: &GMapsConfig,
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
+    verboser.debug("Feed mode: starting listing walk");
     verboser.found_coincidences(None);
     let mut coincidences = Vec::new();
     let mut scrolls_without_new = 0u32;
     let mut fuera = 0u32;
 
     let radio = 180.0 / (2u32.pow(config.zoom) as f32);
+    verboser.debug(&format!(
+        "Feed mode: zoom={} stop radius={radio}, stop_threshold={}",
+        config.zoom, config.stop_threshold
+    ));
 
     loop {
         if verboser.is_cancelled() {
+            verboser.debug("Feed mode: cancelled by user, returning partial results");
             return Ok(coincidences);
         }
 
         let elements = page.find_elements("a[href*=\"/maps/place/\"]").await?;
         let total = elements.len();
+        verboser.debug(&format!(
+            "Feed mode: {total} place links in DOM ({} already processed)",
+            coincidences.len()
+        ));
 
         for el in &elements[coincidences.len()..] {
             if verboser.is_cancelled() {
+                verboser.debug("Feed mode: cancelled while walking links");
                 return Ok(coincidences);
             }
 
-            tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+            let delay = random_delay(config.delay_min, config.delay_max);
+            if verboser.debug_enabled() {
+                verboser.debug(&format!(
+                    "Feed mode: waiting {delay:?} before next link"
+                ));
+            }
+            tokio::time::sleep(delay).await;
 
             let Some(href) = el.attribute("href").await? else {
+                verboser.debug("Feed mode: link without href, skipping");
                 continue;
             };
 
@@ -365,12 +428,28 @@ async fn scrape_feed(
                 let dist = (lat - params.lat).abs().max((lng - params.lng).abs());
                 if dist > radio {
                     fuera += 1;
+                    verboser.debug(&format!(
+                        "Feed mode: {href} out of radius (dist={dist} > {radio}), \
+                         out counter={fuera}/{}",
+                        config.stop_threshold
+                    ));
                     if fuera >= config.stop_threshold {
+                        verboser.debug(
+                            "Feed mode: out-of-radius stop threshold reached, stopping",
+                        );
                         return Ok(coincidences);
                     }
                 } else {
+                    if fuera > 0 {
+                        verboser
+                            .debug("Feed mode: result inside radius, resetting out counter");
+                    }
                     fuera = 0;
                 }
+            } else {
+                verboser.debug(&format!(
+                    "Feed mode: no coordinates in {href}, skipping radius filter"
+                ));
             }
 
             let old_name: String = page
@@ -378,6 +457,9 @@ async fn scrape_feed(
                 .await?
                 .into_value()?;
 
+            verboser.debug(&format!(
+                "Feed mode: clicking link (previous name: {old_name:?})"
+            ));
             el.click().await?;
 
             let _ = wait_until(
@@ -399,11 +481,24 @@ async fn scrape_feed(
                 .into_value()?;
 
             if panel_name.is_empty() {
+                verboser.debug("Feed mode: panel has no title after click, skipping");
                 continue;
             }
 
-            match extract_current_result(page).await {
+            if panel_name == old_name {
+                verboser.debug(&format!(
+                    "Feed mode: panel did not change from '{old_name}' (possible timeout)"
+                ));
+            }
+
+            match extract_current_result(page, verboser).await {
                 Ok((tfno, email, web)) => {
+                    verboser.debug(&format!(
+                        "Feed mode: result '{panel_name}' (phone={}, email={}, website={})",
+                        tfno.as_deref().unwrap_or("-"),
+                        email.as_deref().unwrap_or("-"),
+                        web.as_deref().unwrap_or("-"),
+                    ));
                     verboser.processed_coincidence(&panel_name, coincidences.len() + 1);
                     coincidences.push(Coincidence {
                         name: panel_name,
@@ -425,6 +520,9 @@ async fn scrape_feed(
                 let x = bbox.x + rand::random::<f64>() * bbox.width;
                 let y = bbox.y + rand::random::<f64>() * bbox.height;
                 let delta_y = 30.0 + rand::random::<f64>() * 400.0;
+                verboser.debug(&format!(
+                    "Feed mode: scrolling feed at ({x:.0},{y:.0}) delta_y={delta_y:.0}"
+                ));
                 let cmd = DispatchMouseEventParams::builder()
                     .r#type(DispatchMouseEventType::MouseWheel)
                     .x(x)
@@ -434,10 +532,18 @@ async fn scrape_feed(
                     .build()
                     .unwrap();
                 let _ = page.execute(cmd).await;
+            } else {
+                verboser.debug("Feed mode: could not get feed bounding box");
             }
+        } else {
+            verboser.debug("Feed mode: [role=feed] container not found");
         }
 
-        tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
+        let delay = random_delay(config.delay_min, config.delay_max);
+        if verboser.debug_enabled() {
+            verboser.debug(&format!("Feed mode: waiting {delay:?} after scroll"));
+        }
+        tokio::time::sleep(delay).await;
 
         let new_total = page.find_elements("a[href*=\"/maps/place/\"]").await?.len();
 
@@ -446,12 +552,21 @@ async fn scrape_feed(
         } else {
             scrolls_without_new = 0;
         }
+        verboser.debug(&format!(
+            "Feed mode: links after scroll {new_total} (before {total}), \
+             scrolls without new={scrolls_without_new}/5"
+        ));
 
         if scrolls_without_new >= 5 {
+            verboser.debug("Feed mode: 5 scrolls without new links, end of listing");
             break;
         }
     }
 
+    verboser.debug(&format!(
+        "Feed mode: walk finished with {} results",
+        coincidences.len()
+    ));
     Ok(coincidences)
 }
 
@@ -461,15 +576,19 @@ pub async fn scrape(
     ctx: &Context,
 ) -> Result<ScrapeResult> {
     let verboser = ctx.verboser();
+    verboser.debug(&format!(
+        "Google Maps: starting scrape at ({}, {}) with query '{}' zoom={}",
+        params.lat, params.lng, config.gmaps.search_query, config.gmaps.zoom
+    ));
     verboser.opening_browser(&format!("({}, {})", params.lat, params.lng));
-    let mut instance = Browser::gmaps(config).await?;
-    
+    let mut instance = Browser::gmaps(config, verboser).await?;
+
     let scrape = scrape_internal(&instance, params, config, verboser).await;
-    
+
     verboser.closing_browser();
-    instance.close().await?;
+    instance.close(verboser).await?;
     scrape
-} 
+}
 
 async fn scrape_internal(
     browser: &Browser,
@@ -481,19 +600,24 @@ async fn scrape_internal(
         "https://www.google.com/maps/search/{}/@{},{},{}z",
         config.gmaps.search_query, params.lat, params.lng, config.gmaps.zoom
     );
-    let page = browser.new_page(&url).await?;
+    verboser.debug(&format!("Google Maps: search URL {url}"));
+    let page = browser.new_page(&url, verboser).await?;
+    verboser.debug("Google Maps: waiting for initial navigation");
     page.wait_for_navigation().await?;
+    verboser.debug("Google Maps: navigation completed, waiting for render (3s)");
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     if verboser.is_cancelled() {
+        verboser.debug("Google Maps: cancelled before accepting cookies");
         return Ok(ScrapeResult::empty(false));
     }
 
     verboser.accepting_cookies();
-    let _ = accept_cookies(&page).await;
+    let _ = accept_cookies(&page, verboser).await;
 
     verboser.searching_coincidences();
     if verboser.is_cancelled() {
+        verboser.debug("Google Maps: cancelled before searching results");
         return Ok(ScrapeResult::empty(false));
     }
 
@@ -519,6 +643,7 @@ async fn scrape_internal(
 
     type Output = std::result::Result<Mode, SkipOrError>;
 
+    verboser.debug("Google Maps: detecting mode (feed listing vs single place), timeout 10s");
     let mode = wait_until(
         || async {
             let a: BoxFuture<Output> = Box::pin(async {
@@ -555,10 +680,20 @@ async fn scrape_internal(
     .await?;
 
     let coincidences = match mode {
-        Mode::Feed => scrape_feed(&page, params, &config.gmaps, verboser).await?,
-        Mode::Single => scrape_single(&page, params, &config.gmaps, verboser).await?,
+        Mode::Feed => {
+            verboser.debug("Google Maps: Feed mode detected");
+            scrape_feed(&page, params, &config.gmaps, verboser).await?
+        }
+        Mode::Single => {
+            verboser.debug("Google Maps: Single mode detected");
+            scrape_single(&page, params, &config.gmaps, verboser).await?
+        }
     };
 
+    verboser.debug(&format!(
+        "Google Maps: scrape finished with {} results",
+        coincidences.len()
+    ));
     Ok(ScrapeResult::new(coincidences, false))
 }
 

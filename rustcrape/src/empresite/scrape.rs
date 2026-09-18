@@ -15,8 +15,13 @@ use std::future::Future;
 use std::time::Duration;
 
 /// Acepta el banner de consentimiento de Didomi si aparece.
-async fn accept_cookies(page: &Page) -> Result<()> {
+async fn accept_cookies(page: &Page, verboser: &dyn Verboser) -> Result<()> {
+    verboser.debug("Empresite cookies: looking for accept button");
     let buttons = page.find_elements("button").await?;
+    verboser.debug(&format!(
+        "Empresite cookies: {} buttons scanned",
+        buttons.len()
+    ));
     for btn in buttons {
         let text = btn
             .string_property("textContent")
@@ -24,10 +29,12 @@ async fn accept_cookies(page: &Page) -> Result<()> {
             .unwrap_or_default();
         let lower = text.trim().to_lowercase();
         if lower.contains("aceptar") || lower.contains("accept") {
+            verboser.debug(&format!("Empresite cookies: clicking button {lower:?}"));
             let _ = btn.click().await;
             return Ok(());
         }
     }
+    verboser.debug("Empresite cookies: no banner found");
     Ok(())
 }
 
@@ -35,7 +42,7 @@ async fn accept_cookies(page: &Page) -> Result<()> {
 ///
 /// Se identifican como enlaces raiz que terminan en `.html` y que no apuntan a
 /// paginas internas (`/Actividad/`, `/empresas-provincia`, legales, etc.).
-async fn extract_company_links(page: &Page) -> Result<Vec<String>> {
+async fn extract_company_links(page: &Page, verboser: &dyn Verboser) -> Result<Vec<String>> {
     let js = r#"(() => {
         const out = [];
         for (const a of document.querySelectorAll('a[href*=".html"]')) {
@@ -52,7 +59,12 @@ async fn extract_company_links(page: &Page) -> Result<Vec<String>> {
         }
         return out;
     })()"#;
-    Ok(page.evaluate(js).await?.into_value()?)
+    let links: Vec<String> = page.evaluate(js).await?.into_value()?;
+    verboser.debug(&format!(
+        "Empresite listing: {} company links extracted",
+        links.len()
+    ));
+    Ok(links)
 }
 
 /// Comprueba si existe un enlace de paginacion a la pagina siguiente.
@@ -60,7 +72,7 @@ async fn extract_company_links(page: &Page) -> Result<Vec<String>> {
 /// Sin filtros el numero de pagina viaja en el `href`; con filtros la
 /// paginacion usa enlaces `javascript:void(0)` y la URL (con los filtros)
 /// queda en el atributo `onclick`, asi que se revisan ambos.
-async fn has_next_page(page: &Page, current: u32) -> Result<bool> {
+async fn has_next_page(page: &Page, current: u32, verboser: &dyn Verboser) -> Result<bool> {
     let needle = format!("PgNum-{}/", current + 1);
     let js = format!(
         r#"(() => {{
@@ -73,7 +85,12 @@ async fn has_next_page(page: &Page, current: u32) -> Result<bool> {
         }})()"#,
         needle
     );
-    Ok(page.evaluate(js).await?.into_value()?)
+    let has_more: bool = page.evaluate(js).await?.into_value()?;
+    verboser.debug(&format!(
+        "Empresite pagination: link to PgNum-{} present={has_more}",
+        current + 1
+    ));
+    Ok(has_more)
 }
 
 // --- Captcha -----------------------------------------------------------------
@@ -122,7 +139,8 @@ async fn press_key(page: &Page, key: &str, code: &str, vk: i64) -> Result<()> {
 /// activarlo. Los eventos de teclado si se enrutan al frame enfocado, a
 /// diferencia de los eventos de raton por coordenadas, cuyo enrutado falla en
 /// ventanas pequenas.
-async fn click_captcha_checkbox(page: &Page) -> Result<bool> {
+async fn click_captcha_checkbox(page: &Page, verboser: &dyn Verboser) -> Result<bool> {
+    verboser.debug("Captcha: trying to focus anchor iframe");
     let ok: Option<bool> = page
         .evaluate(
             r#"(() => {
@@ -136,9 +154,11 @@ async fn click_captcha_checkbox(page: &Page) -> Result<bool> {
         .into_value()?;
 
     if ok.is_none() {
+        verboser.debug("Captcha: anchor iframe not present");
         return Ok(false);
     }
 
+    verboser.debug("Captcha: iframe focused, sending TAB to move to checkbox");
     tokio::time::sleep(Duration::from_millis(150)).await;
 
     // TAB mueve el foco al checkbox interno del iframe.
@@ -146,6 +166,7 @@ async fn click_captcha_checkbox(page: &Page) -> Result<bool> {
     tokio::time::sleep(Duration::from_millis(150)).await;
 
     // ESPACIO activa la casilla.
+    verboser.debug("Captcha: sending SPACE to toggle the checkbox");
     press_key(page, " ", "Space", 32).await?;
 
     Ok(true)
@@ -181,19 +202,26 @@ async fn captcha_token(page: &Page) -> Result<String> {
 }
 
 /// Sondea hasta que aparezca el token (casilla superada) o salte el reto.
-async fn wait_captcha_token(page: &Page, timeout: Duration) -> bool {
+async fn wait_captcha_token(page: &Page, timeout: Duration, verboser: &dyn Verboser) -> bool {
+    verboser.debug(&format!(
+        "Captcha: waiting for token (timeout {}s)",
+        timeout.as_secs()
+    ));
     let start = std::time::Instant::now();
     loop {
         let token = captcha_token(page).await.unwrap_or_default();
         if token.len() > 20 {
+            verboser.debug("Captcha: token received (checkbox solved)");
             return true;
         }
 
         if image_challenge_visible(page).await.unwrap_or(false) {
+            verboser.debug("Captcha: image challenge appeared (bframe visible)");
             return false;
         }
 
         if start.elapsed() >= timeout {
+            verboser.debug("Captcha: timeout waiting for token");
             return false;
         }
 
@@ -202,41 +230,52 @@ async fn wait_captcha_token(page: &Page, timeout: Duration) -> bool {
 }
 
 /// Envia el formulario del captcha pulsando "Verificar".
-async fn submit_captcha(page: &Page) -> Result<()> {
+async fn submit_captcha(page: &Page, verboser: &dyn Verboser) -> Result<()> {
     // El banner de cookies puede tapar el boton.
-    let _ = accept_cookies(page).await;
+    let _ = accept_cookies(page, verboser).await;
 
-    if let Ok(btn) = page
+    verboser.debug("Captcha: looking for form 'Verify' button");
+    match page
         .find_element("#form_capados_recaptcha input[type='submit']")
         .await
     {
-        let _ = btn.scroll_into_view().await;
-        let _ = btn.click().await;
+        Ok(btn) => {
+            verboser.debug("Captcha: 'Verify' button found, clicking");
+            let _ = btn.scroll_into_view().await;
+            let _ = btn.click().await;
+        }
+        Err(_) => verboser.debug("Captcha: 'Verify' button not found"),
     }
 
+    verboser.debug("Captcha: waiting for post-submit navigation (max 25s)");
     let _ = tokio::time::timeout(Duration::from_secs(25), page.wait_for_navigation()).await;
     Ok(())
 }
 
 /// Intenta resolver el captcha automaticamente (Plan A). Devuelve si lo logro.
 async fn try_solve_captcha(page: &Page, verboser: &dyn Verboser) -> Result<bool> {
+    verboser.debug("Captcha Plan A: trying automatic resolution");
     // El banner de consentimiento puede tapar la casilla o el boton.
-    let _ = accept_cookies(page).await;
+    let _ = accept_cookies(page, verboser).await;
 
-    if !click_captcha_checkbox(page).await? {
+    if !click_captcha_checkbox(page, verboser).await? {
         verboser.warn("Captcha: no se encontro el iframe del anchor");
         return Ok(false);
     }
 
-    if !wait_captcha_token(page, Duration::from_secs(10)).await {
+    if !wait_captcha_token(page, Duration::from_secs(10), verboser).await {
         verboser.warn("Captcha: la casilla no se supero (posible reto de imagenes)");
         return Ok(false);
     }
 
-    submit_captcha(page).await?;
+    submit_captcha(page, verboser).await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    Ok(!has_captcha(page).await?)
+    let blocked = has_captcha(page).await?;
+    verboser.debug(&format!(
+        "Captcha Plan A: post-submit result, blocked={blocked}"
+    ));
+    Ok(!blocked)
 }
 
 /// Espera (sin timeout) a que el usuario resuelva el captcha manualmente.
@@ -247,6 +286,7 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
         "Captcha detectado: resuelvelo manualmente en la ventana del navegador \
          (cierra el navegador o cancela para abortar)",
     );
+    verboser.debug("Captcha Plan C: waiting for manual resolution (polling every 1s)");
 
     loop {
         if verboser.is_cancelled() {
@@ -261,6 +301,7 @@ async fn wait_manual(page: &Page, verboser: &dyn Verboser) -> Result<()> {
         };
 
         if !blocked {
+            verboser.debug("Captcha Plan C: page unblocked manually");
             return Ok(());
         }
 
@@ -293,15 +334,20 @@ where
     // Plan B: rotar VPN y reintentar. Si la rotacion no se puede completar
     // (VPN desactivada, sin ruta o fallo irrecuperable) se pasa al plan C. Si
     // se completa pero el captcha persiste, el bucle prueba con otra IP.
+    verboser.debug("Captcha Plan B: rotating VPN to retry with another IP");
     if ctx.vpn_rotate().await? {
         let url = page.url().await?.unwrap();
+        verboser.debug(&format!(
+            "Captcha Plan B: reopening {url} with ephemeral profile"
+        ));
 
-        browser.close().await?;
-        *browser = Browser::empresite_fresh(config).await?;
-        *page = browser.new_page(url).await?;
+        browser.close(verboser).await?;
+        *browser = Browser::empresite_fresh(config, verboser).await?;
+        *page = browser.new_page(url, verboser).await?;
 
         loop {
             page.wait_for_navigation_response().await?;
+            verboser.debug("Captcha Plan B: checking whether the page is still blocked");
             let blocked = wait_until(
                 || async {
                     if has_captcha(page).await? {
@@ -320,8 +366,10 @@ where
             match blocked {
                 Ok(blocked) => {
                     if !blocked {
+                        verboser.debug("Captcha Plan B: page loaded without block");
                         return Ok(());
                     }
+                    verboser.debug("Captcha Plan B: still blocked, retrying Plan A");
 
                     if try_solve_captcha(&page, verboser).await? {
                         verboser.warn("Captcha resuelto automaticamente");
@@ -330,6 +378,9 @@ where
                 }
                 Err(err) => {
                     if err.is::<WaitUntilTimeoutError>() {
+                        verboser.debug(
+                            "Captcha Plan B: wait timeout, reloading page",
+                        );
                         page.reload().await?;
                         continue;
                     }
@@ -342,10 +393,12 @@ where
 
     // Plan C: resolucion manual (solo si hay navegador visible).
     if !config.empresite.headless {
+        verboser.debug("Captcha Plan C: visible browser, requesting manual resolution");
         wait_manual(&page, verboser).await?;
         return Ok(());
     }
 
+    verboser.debug("Captcha: headless browser, cannot resolve manually");
     Err(anyhow::anyhow!(
         "no se pudo resolver el captcha de Empresite"
     ))
@@ -387,7 +440,7 @@ struct DetailRaw {
 }
 
 /// Extrae los datos crudos de una ficha via evaluacion JS.
-async fn extract_detail(page: &Page) -> Result<DetailRaw> {
+async fn extract_detail(page: &Page, verboser: &dyn Verboser) -> Result<DetailRaw> {
     let js = r#"(() => {
         const name = (document.querySelector('h1')?.textContent || '').trim();
         const emailEl = document.querySelector('a.email[href^="mailto:"]');
@@ -419,7 +472,15 @@ async fn extract_detail(page: &Page) -> Result<DetailRaw> {
             company_status: field('Estado de la empresa')
         };
     })()"#;
-    Ok(page.evaluate(js).await?.into_value()?)
+    let raw: DetailRaw = page.evaluate(js).await?.into_value()?;
+    verboser.debug(&format!(
+        "Empresite detail: raw data extracted (name={:?}, email={}, website={}, phone={})",
+        raw.name,
+        !raw.email.is_empty(),
+        !raw.web.is_empty(),
+        !raw.tfno.is_empty(),
+    ));
+    Ok(raw)
 }
 
 /// Comprueba si la pagina es un detalle real de Empresite con sus datos.
@@ -554,9 +615,15 @@ async fn scrape_detail(
     count: usize,
 ) -> Result<DetailOutcome> {
     let verboser = ctx.verboser();
-    let mut page = browser.new_page(link).await?;
+    verboser.debug(&format!("Empresite detail #{count}: opening {link}"));
+    let mut page = browser.new_page(link, verboser).await?;
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
         //dismiss_dialogs(&detail_page).await;
+
+        verboser.debug(&format!(
+            "Empresite detail #{count}: attempt {attempt}/{MAX_DETAIL_ATTEMPTS}, \
+             waiting for detail or captcha (max 7s)"
+        ));
 
         // Sondea hasta que la ficha este lista (detalle real con datos) o
         // aparezca un captcha, en vez de esperar a que termine la navegacion
@@ -578,17 +645,28 @@ async fn scrape_detail(
 
         match is_blocked {
             Ok(true) => {
+                verboser.debug(&format!(
+                    "Empresite detail #{count}: captcha/429 detected, unblocking"
+                ));
                 unblock(browser, &mut page, config, ctx, |page| async move {
                     is_detail_loaded(&page).await
                 })
                 .await?;
+                verboser.debug(&format!("Empresite detail #{count}: unblocked"));
             }
-            Ok(false) => {}
+            Ok(false) => {
+                verboser.debug(&format!(
+                    "Empresite detail #{count}: detail loaded successfully"
+                ));
+            }
             Err(err) => {
                 if !err.is::<WaitUntilTimeoutError>() {
                     return Err(err);
                 }
                 page.reload().await?;
+                verboser.debug(&format!(
+                    "Empresite detail #{count}: attempt {attempt} timed out, reloading"
+                ));
                 verboser.warn(&format!(
                     "Ficha {} no cargo correctamente (intento {}); reabriendo",
                     link, attempt
@@ -602,9 +680,12 @@ async fn scrape_detail(
             }
         }
 
-        let raw = extract_detail(&page).await?;
+        let raw = extract_detail(&page, verboser).await?;
 
         if raw.name.is_empty() {
+            verboser.debug(&format!(
+                "Empresite detail #{count}: empty name, skipping record"
+            ));
             page.close().await?;
             return Ok(DetailOutcome::Skipped);
         }
@@ -623,6 +704,13 @@ async fn scrape_detail(
         let cnae_activity = clean_text(&raw.cnae_activity);
         let company_status = clean_text(&raw.company_status);
 
+        verboser.debug(&format!(
+            "Empresite detail #{count}: extracted '{}' (email={}, website={}, phone={})",
+            raw.name,
+            email.is_some(),
+            web.is_some(),
+            tfno.is_some(),
+        ));
         verboser.processed_coincidence(&raw.name, count);
 
         page.close().await?;
@@ -645,6 +733,9 @@ async fn scrape_detail(
         }));
     }
 
+    verboser.debug(&format!(
+        "Empresite detail #{count}: giving up after {MAX_DETAIL_ATTEMPTS} attempts"
+    ));
     page.close().await?;
     Err(anyhow::anyhow!(
         "no se pudo cargar el detalle {} tras {} intentos",
@@ -685,18 +776,25 @@ pub async fn scrape_internal(
 
     let activity = activity_slug(&config.empresite.search_query);
     let url = listing_url(&activity, params.page, &config.empresite);
+    verboser.debug(&format!(
+        "Empresite listing: activity slug='{activity}', page={}, url={url}",
+        params.page
+    ));
 
-    let mut page = browser.new_page(&url).await?;
+    let mut page = browser.new_page(&url, verboser).await?;
 
+    verboser.debug("Empresite listing: waiting for initial navigation");
     page.wait_for_navigation().await?;
     verboser.accepting_cookies();
-    let _ = accept_cookies(&page).await;
+    let _ = accept_cookies(&page, verboser).await;
 
     if verboser.is_cancelled() {
+        verboser.debug("Empresite listing: cancelled before extracting links");
         return Ok(ScrapeResult::empty(false));
     }
 
     // El listado puede venir bloqueado por captcha.
+    verboser.debug("Empresite listing: checking captcha/429 block");
     if has_captcha(&page).await? {
         unblock(browser, &mut page, &config, ctx, |_page| async move {
             Ok(true)
@@ -704,22 +802,29 @@ pub async fn scrape_internal(
         .await?;
     }
 
-    let links = extract_company_links(&page).await?;
+    let links = extract_company_links(&page, verboser).await?;
     verboser.found_coincidences(Some(links.len()));
 
-    let has_more = has_next_page(&page, params.page).await?;
+    let has_more = has_next_page(&page, params.page, verboser).await?;
 
     let mut coincidences = Vec::new();
+    let total_links = links.len();
     for (idx, link) in links.into_iter().enumerate() {
         if verboser.is_cancelled() {
             break;
         }
 
-        tokio::time::sleep(random_delay(
-            config.empresite.delay_min,
-            config.empresite.delay_max,
-        ))
-        .await;
+        verboser.debug(&format!(
+            "Empresite listing: link {}/{} -> {link}",
+            idx + 1,
+            total_links
+        ));
+
+        let delay = random_delay(config.empresite.delay_min, config.empresite.delay_max);
+        if verboser.debug_enabled() {
+            verboser.debug(&format!("Empresite listing: waiting {delay:?} before detail"));
+        }
+        tokio::time::sleep(delay).await;
 
         if let DetailOutcome::Found(coincidence) =
             scrape_detail(browser, &link, &config, ctx, idx + 1).await?
@@ -728,6 +833,11 @@ pub async fn scrape_internal(
         }
     }
 
+    verboser.debug(&format!(
+        "Empresite listing: page {} finished with {} results (has_more={has_more})",
+        params.page,
+        coincidences.len()
+    ));
     Ok(ScrapeResult::new(coincidences, has_more))
 }
 
@@ -736,9 +846,15 @@ pub async fn scrape(
     config: &Config,
     ctx: &Context,
 ) -> Result<ScrapeResult> {
-    let mut browser = Browser::empresite(config).await?;
+    let verboser = ctx.verboser();
+    verboser.debug(&format!(
+        "Empresite: starting scrape of page {} (query='{}')",
+        params.page, config.empresite.search_query
+    ));
+    let mut browser = Browser::empresite(config, verboser).await?;
     let out = scrape_internal(&mut browser, params, config, ctx).await;
-    browser.close().await?;
+    ctx.verboser().closing_browser();
+    browser.close(verboser).await?;
     out
 }
 

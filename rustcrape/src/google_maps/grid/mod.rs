@@ -32,6 +32,11 @@ impl Border {
         let lng_count = ((BOUNDS_EAST - BOUNDS_WEST - half_size) / cell_size) as usize + 1;
         let total_cells = lat_count * lng_count;
 
+        verboser.debug(&format!(
+            "Grid: zoom={zoom} cell_size={cell_size}, lat_count={lat_count}, \
+             lng_count={lng_count}, total_cells={total_cells}"
+        ));
+
         verboser.seeding_tasks(0, 0, total_cells);
 
         let mut centers = Vec::new();
@@ -54,6 +59,11 @@ impl Border {
 
         centers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         centers.dedup();
+
+        verboser.debug(&format!(
+            "Grid: generated {} valid cell centers after dedup",
+            centers.len()
+        ));
 
         Ok(centers)
     }

@@ -10,6 +10,7 @@ use futures::StreamExt;
 use rand::Rng;
 
 use crate::types::Config;
+use crate::verboser::Verboser;
 
 /// Versiones de Chrome usadas para construir un User-Agent y sus Client Hints
 /// (`Sec-CH-UA`) coherentes entre si. Solo Windows, porque la huella real del
@@ -168,12 +169,23 @@ impl Browser {
         headless: bool,
         browser_path: Option<&Path>,
         profile_dir: Option<&Path>,
+        verboser: &dyn Verboser,
     ) -> Result<Self> {
         let idx = rand_range(0, VIEWPORTS.len() - 1);
         let (width, height) = VIEWPORTS[idx];
         let (full, major) = CHROME_VERSIONS[rand_range(0, CHROME_VERSIONS.len() - 1)];
         let user_agent = build_user_agent(major);
         let user_agent_metadata = build_user_agent_metadata(full, major);
+
+        if verboser.debug_enabled() {
+            verboser.debug(&format!(
+                "Browser: preparing launch (headless={headless}, viewport={width}x{height}, \
+                 user-agent=Chrome/{major}, profile={})",
+                profile_dir
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+            ));
+        }
 
         let mut builder = BrowserConfig::builder()
             .viewport(Viewport {
@@ -201,6 +213,16 @@ impl Browser {
             .map(|p| p.to_path_buf())
             .or_else(find_browser);
 
+        match &exe_path {
+            Some(path) => verboser.debug(&format!(
+                "Browser: executable resolved at {}",
+                path.display()
+            )),
+            None => verboser.debug(
+                "Browser: no valid explicit path; falling back to system Chrome/Edge if present",
+            ),
+        }
+
         if let Some(path) = exe_path {
             builder = builder.chrome_executable(path);
         }
@@ -212,9 +234,11 @@ impl Browser {
             )
         })?;
 
+        verboser.debug("Browser: launching Chromium process...");
         let (browser, mut handler) = COxideBrowser::launch(config)
             .await
             .context("error al lanzar el navegador")?;
+        verboser.debug("Browser: Chromium process launched successfully");
 
         tokio::spawn(async move {
             let handler_loop = async move {
@@ -251,7 +275,9 @@ impl Browser {
     /// Abre una pagina aplicando antes el User-Agent (y sus Client Hints)
     /// elegidos para esta sesion. Se crea en `about:blank` para poder inyectar
     /// la anulacion de UA antes de emitir la primera peticion de red.
-    pub async fn new_page(&self, url: impl Into<String>) -> Result<Page> {
+    pub async fn new_page(&self, url: impl Into<String>, verboser: &dyn Verboser) -> Result<Page> {
+        let url = url.into();
+        verboser.debug(&format!("Browser: creating tab at about:blank for {url}"));
         let page = self.browser.new_page("about:blank").await?;
 
         let params = SetUserAgentOverrideParams::builder()
@@ -260,16 +286,20 @@ impl Browser {
             .build()
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         page.execute(params).await?;
+        verboser.debug("Browser: User-Agent and Client Hints applied to the tab");
 
+        verboser.debug(&format!("Browser: navigating to {url}"));
         page.goto(url).await?;
+        verboser.debug("Browser: navigation request emitted");
         Ok(page)
     }
 
-    pub async fn empresite(config: &Config) -> Result<Self> {
+    pub async fn empresite(config: &Config, verboser: &dyn Verboser) -> Result<Self> {
         Ok(Self::new(
             config.empresite.headless,
             config.browser_path.as_deref().map(Path::new),
             Some(&Self::profile_root(config).join("empresite")),
+            verboser,
         )
         .await?)
     }
@@ -277,32 +307,40 @@ impl Browser {
     /// Variante con perfil efimero, usada tras rotar la IP: no arrastra cookies
     /// de reCAPTCHA (`rc::c`/`_GRECAPTCHA`) que correlacionarian la sesion
     /// anterior con la nueva direccion.
-    pub async fn empresite_fresh(config: &Config) -> Result<Self> {
+    pub async fn empresite_fresh(config: &Config, verboser: &dyn Verboser) -> Result<Self> {
         let fresh = Self::profile_root(config).join(format!(
             "empresite-fresh-{}-{}",
             std::process::id(),
             rand_range(0, 1_000_000)
         ));
+        verboser.debug(&format!(
+            "Browser: opening ephemeral profile at {}",
+            fresh.display()
+        ));
         Ok(Self::new(
             config.empresite.headless,
             config.browser_path.as_deref().map(Path::new),
             Some(&fresh),
+            verboser,
         )
         .await?)
     }
 
-    pub async fn gmaps(config: &Config) -> Result<Self> {
+    pub async fn gmaps(config: &Config, verboser: &dyn Verboser) -> Result<Self> {
         Ok(Self::new(
             config.gmaps.headless,
             config.browser_path.as_deref().map(Path::new),
             Some(&Self::profile_root(config).join("gmaps")),
+            verboser,
         )
         .await?)
     }
 
-    pub async fn close(&mut self) -> Result<()> {
+    pub async fn close(&mut self, verboser: &dyn Verboser) -> Result<()> {
+        verboser.debug("Browser: closing Chromium process");
         self.browser.close().await?;
         self.browser.wait().await?;
+        verboser.debug("Browser: Chromium process closed");
         Ok(())
     }
 }

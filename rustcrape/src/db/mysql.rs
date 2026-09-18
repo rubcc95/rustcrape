@@ -77,10 +77,14 @@ impl MysqlPersistence {
         };
 
         verboser.connecting_db();
+        verboser.debug(&format!(
+            "MySQL: connecting to {host}:{port} (database='{database}')"
+        ));
 
         // 1. Connect to engine (no specific database)
         let engine_url = format!("mysql://{}:{}@{}:{}", user, password, host, port);
         let admin_pool = MySqlPool::connect(&engine_url).await?;
+        verboser.debug("MySQL: engine connection established");
 
         // 2. Check if database exists
         let exists =
@@ -89,6 +93,7 @@ impl MysqlPersistence {
                 .fetch_optional(&admin_pool)
                 .await?
                 .is_some();
+        verboser.debug(&format!("MySQL: database exists={exists}"));
 
         if !exists {
             verboser.creating_db();
@@ -98,6 +103,7 @@ impl MysqlPersistence {
             )))
             .execute(&admin_pool)
             .await?;
+            verboser.debug(&format!("MySQL: database '{database}' created"));
         }
 
         // 3. Connect with the database
@@ -107,6 +113,7 @@ impl MysqlPersistence {
         );
         let pool = MySqlPool::connect(&db_url).await?;
         drop(admin_pool);
+        verboser.debug("MySQL: connected to target database");
 
         let this = Self {
             pool,
@@ -119,11 +126,14 @@ impl MysqlPersistence {
 
         // 4. Ensure tables
         if !exists {
+            verboser.debug("MySQL: new database, creating tables");
             this.create_tables(params, verboser).await?;
         } else {
+            verboser.debug("MySQL: existing database, verifying tables");
             this.ensure_tables(params, verboser).await?;
         }
 
+        verboser.debug("MySQL: schema ready");
         Ok(this)
     }
 
@@ -148,13 +158,14 @@ impl MysqlPersistence {
             .collect())
     }
 
-    async fn ensure_bound_columns(&self) -> Result<()> {
+    async fn ensure_bound_columns(&self, verboser: &impl Verboser) -> Result<()> {
         let cols = self.get_columns("bounds").await?;
         let existing: std::collections::HashSet<String> =
             cols.into_iter().map(|c| c.name).collect();
 
         for (name, def) in NEW_BOUND_COLUMNS {
             if !existing.contains(*name) {
+                verboser.debug(&format!("MySQL: adding column bounds.{name}"));
                 sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "ALTER TABLE bounds ADD COLUMN {} {}",
                     name, def
@@ -166,19 +177,25 @@ impl MysqlPersistence {
         Ok(())
     }
 
-    async fn ensure_coincidence_columns(&self) -> Result<()> {
+    async fn ensure_coincidence_columns(&self, verboser: &impl Verboser) -> Result<()> {
         let cols = self.get_columns("coincidences").await?;
         let existing: std::collections::HashSet<String> =
             cols.iter().map(|c| c.name.clone()).collect();
+        verboser.debug(&format!(
+            "MySQL: existing coincidences columns: {:?}",
+            existing
+        ));
 
         // Migra la antigua columna `maps` a `source_url`.
         if existing.contains("maps") && !existing.contains("source_url") {
+            verboser.debug("MySQL: migrating column 'maps' -> 'source_url'");
             sqlx::raw_sql("ALTER TABLE coincidences CHANGE COLUMN maps source_url TEXT")
                 .execute(&self.pool)
                 .await?;
         }
 
         if !existing.contains("source") {
+            verboser.debug("MySQL: adding column 'source'");
             sqlx::raw_sql(
                 "ALTER TABLE coincidences ADD COLUMN source VARCHAR(50) NOT NULL DEFAULT ''",
             )
@@ -201,6 +218,7 @@ impl MysqlPersistence {
 
         for (name, def) in NEW_COINCIDENCE_COLUMNS {
             if !existing.contains(*name) {
+                verboser.debug(&format!("MySQL: adding column coincidences.{name}"));
                 sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "ALTER TABLE coincidences ADD COLUMN {} {}",
                     name, def
@@ -214,8 +232,9 @@ impl MysqlPersistence {
 
     async fn create_tables(&self, params: &GMapsConfig, verboser: &impl Verboser) -> Result<()> {
         verboser.creating_tables();
-        self.ensure_optional_tables().await?;
+        self.ensure_optional_tables(verboser).await?;
 
+        verboser.debug("MySQL: creating table 'coincidences'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS coincidences (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -242,6 +261,7 @@ impl MysqlPersistence {
         .execute(&self.pool)
         .await?;
 
+        verboser.debug("MySQL: creating table 'configuration_rustcrape'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS configuration_rustcrape (
                 id INT PRIMARY KEY DEFAULT 1,
@@ -268,7 +288,8 @@ impl MysqlPersistence {
     /// Crea (si faltan) las tablas opcionales de cada target: `bounds` para
     /// Google Maps y `empresite_pages` para Empresite. No se exigen en
     /// `REQUIRED_TABLES` para permitir bases de datos de una sola web.
-    async fn ensure_optional_tables(&self) -> Result<()> {
+    async fn ensure_optional_tables(&self, verboser: &impl Verboser) -> Result<()> {
+        verboser.debug("MySQL: ensuring optional table 'bounds'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS bounds (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -284,6 +305,7 @@ impl MysqlPersistence {
         .execute(&self.pool)
         .await?;
 
+        verboser.debug("MySQL: ensuring optional table 'empresite_pages'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS empresite_pages (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -307,6 +329,7 @@ impl MysqlPersistence {
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.verifying_db();
+        verboser.debug("MySQL: inspecting existing tables");
         let rows =
             sqlx::query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?")
                 .bind(&self.db_name)
@@ -314,11 +337,13 @@ impl MysqlPersistence {
                 .await?;
 
         if rows.is_empty() {
+            verboser.debug("MySQL: no tables found, creating from scratch");
             return self.create_tables(params, verboser).await;
         }
 
         let existing: std::collections::HashSet<String> =
             rows.iter().map(|row| row.get(0)).collect();
+        verboser.debug(&format!("MySQL: existing tables: {existing:?}"));
 
         let missing: Vec<&str> = REQUIRED_TABLES
             .iter()
@@ -327,13 +352,14 @@ impl MysqlPersistence {
             .collect();
 
         if missing.is_empty() {
-            self.ensure_optional_tables().await?;
-            self.ensure_bound_columns().await?;
-            self.ensure_coincidence_columns().await?;
+            self.ensure_optional_tables(verboser).await?;
+            self.ensure_bound_columns(verboser).await?;
+            self.ensure_coincidence_columns(verboser).await?;
 
             self.validate_bounds().await?;
             self.validate_coincidences().await?;
             self.validate_coincidences_unique().await?;
+            verboser.debug("MySQL: schema validation passed");
 
             let config_row =
                 sqlx::query("SELECT search_query, zoom FROM configuration_rustcrape WHERE id = 1")
@@ -342,9 +368,14 @@ impl MysqlPersistence {
                     .ok_or_else(|| anyhow::anyhow!("configuration_rustcrape table is empty"))?;
             params.search_query = config_row.get("search_query");
             params.zoom = config_row.get("zoom");
+            verboser.debug(&format!(
+                "MySQL: loaded persisted config (search_query='{}', zoom={})",
+                params.search_query, params.zoom
+            ));
             return Ok(());
         }
 
+        verboser.debug(&format!("MySQL: missing required tables: {missing:?}"));
         anyhow::bail!(
             "Tablas faltantes: {}. Deben existir todas: {}.",
             missing.join(", "),

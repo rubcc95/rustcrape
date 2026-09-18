@@ -196,4 +196,9 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
     fn debug(&self, msg: &str) {
         self.emit("verbose", format!("Verbose: {msg}"));
     }
+
+    #[cfg(debug_assertions)]
+    fn debug_enabled(&self) -> bool {
+        true
+    }
 }

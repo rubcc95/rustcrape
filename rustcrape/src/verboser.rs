@@ -36,6 +36,13 @@ pub trait Verboser: Send + Sync + 'static {
     fn error(&self, err: &str);
     fn debug(&self, err: &str);
 
+    /// Indica si los mensajes de `debug` se van a consumir realmente. Permite
+    /// evitar el coste de construir el mensaje en los bucles mas calientes
+    /// cuando el modo verboso esta desactivado (release).
+    fn debug_enabled(&self) -> bool {
+        false
+    }
+
     fn is_cancelled(&self) -> bool {
         false
     }
@@ -76,7 +83,7 @@ impl Verboser for NoVerboser {
     #[inline(always)]
     fn searching_coincidences(&self) {}
     #[inline(always)]
-    fn found_coincidences(&self, count: Option<usize>) {}
+    fn found_coincidences(&self, _: Option<usize>) {}
     #[inline(always)]
     fn processed_coincidence(&self, _: &str, _: usize) {}
     #[inline(always)]
@@ -185,5 +192,8 @@ impl Verboser for DebugVerboser {
     }
     fn debug(&self, err: &str) {
         eprintln!("Debug: {err}");
+    }
+    fn debug_enabled(&self) -> bool {
+        true
     }
 }

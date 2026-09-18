@@ -97,8 +97,7 @@
 
   :global(.log-accepting_cookies),
   :global(.log-searching_coincidences),
-  :global(.log-found_single_coincidence),
-  :global(.log-found_multiple_coincidences),
+  :global(.log-found_coincidences),
   :global(.log-closing_browser),
   :global(.log-claimed_task),
   :global(.log-released_task) {

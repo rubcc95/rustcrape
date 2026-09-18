@@ -22,22 +22,36 @@ const BASE_URL: &str = "https://empresite.eleconomista.es";
 /// (params en la query, cuerpo vacío); sin filtros basta un GET.
 async fn fetch_listing(ctx: &Context, url: &str, config: &EmpresiteConfig) -> Result<String> {
     if config.filter_query().is_empty() {
+        ctx.verboser()
+            .debug(&format!("Empresite HTTP listing: GET (no filters) {url}"));
         get(ctx, url).await
     } else {
+        ctx.verboser()
+            .debug(&format!("Empresite HTTP listing: POST (filters) {url}"));
         post(ctx, url).await
     }
 }
 
 async fn fetch_detail(ctx: &Context, url: &str) -> Result<String> {
+    ctx.verboser()
+        .debug(&format!("Empresite HTTP detail: fetching {url}"));
     get(ctx, url).await
 }
 
 async fn get(ctx: &Context, url: &str) -> Result<String> {
+    ctx.verboser().debug(&format!("HTTP GET {url}"));
     let resp = ctx.http().get(url).send().await?;
-    Ok(resp.text().await?)
+    let status = resp.status();
+    let body = resp.text().await?;
+    ctx.verboser().debug(&format!(
+        "HTTP GET {url} -> {status}, {} bytes",
+        body.len()
+    ));
+    Ok(body)
 }
 
 async fn post(ctx: &Context, url: &str) -> Result<String> {
+    ctx.verboser().debug(&format!("HTTP POST {url}"));
     let resp = ctx
         .http()
         .post(url)
@@ -47,7 +61,13 @@ async fn post(ctx: &Context, url: &str) -> Result<String> {
         )
         .send()
         .await?;
-    Ok(resp.text().await?)
+    let status = resp.status();
+    let body = resp.text().await?;
+    ctx.verboser().debug(&format!(
+        "HTTP POST {url} -> {status}, {} bytes",
+        body.len()
+    ));
+    Ok(body)
 }
 
 // --- Detección de bloqueo ---------------------------------------------------
@@ -344,9 +364,15 @@ async fn unblock<F: Future<Output = Result<String>>>(
     ctx: &Context,
     then: impl Fn() -> F,
 ) -> Result<String> {
+    ctx.verboser()
+        .debug("Empresite HTTP unblock: rotating VPN to get a new IP");
     if !ctx.vpn_rotate().await? {
+        ctx.verboser()
+            .debug("Empresite HTTP unblock: VPN unavailable, cannot rotate");
         return Err(CaptchaError.into());
     }
+    ctx.verboser()
+        .debug("Empresite HTTP unblock: VPN rotated, retrying request until unblocked");
     Ok(wait_until(
         || async { Ok(Some(then().await?)) },
         Duration::from_millis(500),
@@ -365,8 +391,14 @@ async fn scrape_detail(
 ) -> Result<DetailOutcome> {
     let verboser = ctx.verboser();
     let url = absolutize(link);
+    verboser.debug(&format!(
+        "Empresite HTTP detail #{count}: {url} (max {MAX_DETAIL_ATTEMPTS} attempts)"
+    ));
 
     for attempt in 1..=MAX_DETAIL_ATTEMPTS {
+        verboser.debug(&format!(
+            "Empresite HTTP detail #{count}: attempt {attempt}/{MAX_DETAIL_ATTEMPTS}"
+        ));
         let mut html = fetch_detail(ctx, &url).await?;
 
         if is_blocked(&html) {
@@ -375,9 +407,15 @@ async fn scrape_detail(
                 link
             ));
             html = unblock(ctx, || fetch_detail(ctx, &url)).await?;
+            verboser.debug(&format!(
+                "Empresite HTTP detail #{count}: unblocked on attempt {attempt}"
+            ));
         }
 
         if !is_detail_loaded(&html) {
+            verboser.debug(&format!(
+                "Empresite HTTP detail #{count}: page not a valid detail on attempt {attempt}"
+            ));
             verboser.warn(&format!(
                 "Ficha {} no cargó correctamente (intento {attempt}); reintentando",
                 link
@@ -392,6 +430,9 @@ async fn scrape_detail(
 
         let raw = extract_detail(&html);
         if raw.name.is_empty() {
+            verboser.debug(&format!(
+                "Empresite HTTP detail #{count}: empty name, skipping record"
+            ));
             return Ok(DetailOutcome::Skipped);
         }
 
@@ -409,6 +450,13 @@ async fn scrape_detail(
         let cnae_activity = clean_text(&raw.cnae_activity);
         let company_status = clean_text(&raw.company_status);
 
+        verboser.debug(&format!(
+            "Empresite HTTP detail #{count}: extracted '{}' (email={}, website={}, phone={})",
+            raw.name,
+            email.is_some(),
+            web.is_some(),
+            tfno.is_some(),
+        ));
         verboser.processed_coincidence(&raw.name, count);
 
         return Ok(DetailOutcome::Found(Coincidence {
@@ -430,6 +478,9 @@ async fn scrape_detail(
         }));
     }
 
+    verboser.debug(&format!(
+        "Empresite HTTP detail #{count}: giving up after {MAX_DETAIL_ATTEMPTS} attempts"
+    ));
     Ok(DetailOutcome::Skipped)
 }
 
@@ -444,31 +495,45 @@ async fn scrape_internal(
     verboser.searching_coincidences();
 
     let activity = activity_slug(&config.empresite.search_query);
+    verboser.debug(&format!(
+        "Empresite HTTP listing: activity slug='{activity}', page={}",
+        params.page
+    ));
 
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
-    for _ in 0..MAX_LISTING_ATTEMPTS {
+    for attempt in 1..=MAX_LISTING_ATTEMPTS {
         let url = listing_url(&activity, params.page, &config.empresite);
+        verboser.debug(&format!(
+            "Empresite HTTP listing: attempt {attempt}/{MAX_LISTING_ATTEMPTS} -> {url}"
+        ));
         let Ok(mut html) = fetch_listing(ctx, &url, &config.empresite).await else {
+            verboser.debug(&format!(
+                "Empresite HTTP listing: attempt {attempt} failed to fetch, retrying"
+            ));
             continue;
         };
 
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
             html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite)).await?;
+            verboser.debug("Empresite HTTP listing: listing unblocked after VPN rotation");
         }
 
         let links = extract_company_links(&html);
         let has_more = has_next_page(&html, params.page);
         verboser.debug(&format!(
             "Loaded list: {} links, next page: {has_more}",
-            links.len(),            
+            links.len(),
         ));
         listing = Some((links, has_more));
         break;
     }
 
     let Some((links, has_more)) = listing else {
+        verboser.debug(&format!(
+            "Empresite HTTP listing: giving up after {MAX_LISTING_ATTEMPTS} attempts"
+        ));
         return Err(anyhow::anyhow!(
             "no se pudo cargar el listado tras {} intentos",
             MAX_LISTING_ATTEMPTS
@@ -478,16 +543,23 @@ async fn scrape_internal(
     verboser.found_coincidences(Some(links.len()));
 
     let mut coincidences = Vec::new();
+    let total_links = links.len();
     for (idx, link) in links.into_iter().enumerate() {
         if verboser.is_cancelled() {
             break;
         }
 
-        tokio::time::sleep(random_delay(
-            config.empresite.delay_min,
-            config.empresite.delay_max,
-        ))
-        .await;
+        verboser.debug(&format!(
+            "Empresite HTTP listing: link {}/{} -> {link}",
+            idx + 1,
+            total_links
+        ));
+
+        let delay = random_delay(config.empresite.delay_min, config.empresite.delay_max);
+        if verboser.debug_enabled() {
+            verboser.debug(&format!("Empresite HTTP listing: waiting {delay:?} before detail"));
+        }
+        tokio::time::sleep(delay).await;
 
         match scrape_detail(ctx, &link, config, idx + 1).await? {
             DetailOutcome::Found(coincidence) => coincidences.push(coincidence),
@@ -495,6 +567,11 @@ async fn scrape_internal(
         }
     }
 
+    verboser.debug(&format!(
+        "Empresite HTTP listing: page {} finished with {} results (has_more={has_more})",
+        params.page,
+        coincidences.len()
+    ));
     Ok(ScrapeResult::new(coincidences, has_more))
 }
 
@@ -503,6 +580,10 @@ pub async fn scrape(
     config: &Config,
     ctx: &Context,
 ) -> Result<ScrapeResult> {
+    ctx.verboser().debug(&format!(
+        "Empresite HTTP: starting scrape of page {} (query='{}')",
+        params.page, config.empresite.search_query
+    ));
     scrape_internal(ctx, params, config).await
 }
 

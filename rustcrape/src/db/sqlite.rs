@@ -28,6 +28,7 @@ impl SqlitePersistence {
         params: &mut GMapsConfig,
         verboser: &impl Verboser,
     ) -> Result<Self> {
+        verboser.debug(&format!("SQLite: opening database at {db_path}"));
         if let Some(parent) = Path::new(db_path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
@@ -37,6 +38,7 @@ impl SqlitePersistence {
             .max_connections(1)
             .connect_with(opts)
             .await?;
+        verboser.debug("SQLite: connection pool created");
 
         // Enable WAL mode for better concurrent reads
         sqlx::query("PRAGMA journal_mode=WAL")
@@ -45,6 +47,7 @@ impl SqlitePersistence {
         sqlx::query("PRAGMA busy_timeout=5000")
             .execute(&pool)
             .await?;
+        verboser.debug("SQLite: pragmas applied (WAL, busy_timeout=5000)");
 
         let this = Self { pool };
         this.create_tables(params, verboser).await?;
@@ -57,6 +60,7 @@ impl SqlitePersistence {
         verboser: &impl Verboser,
     ) -> Result<()> {
         verboser.creating_tables();
+        verboser.debug("SQLite: ensuring table 'bounds'");
 
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS bounds (
@@ -73,6 +77,7 @@ impl SqlitePersistence {
         .execute(&self.pool)
         .await?;
 
+        verboser.debug("SQLite: ensuring table 'coincidences'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS coincidences (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,6 +104,7 @@ impl SqlitePersistence {
         .execute(&self.pool)
         .await?;
 
+        verboser.debug("SQLite: ensuring table 'configuration_rustcrape'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS configuration_rustcrape (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -110,6 +116,7 @@ impl SqlitePersistence {
         .execute(&self.pool)
         .await?;
 
+        verboser.debug("SQLite: ensuring table 'empresite_pages'");
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS empresite_pages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,9 +131,10 @@ impl SqlitePersistence {
         .execute(&self.pool)
         .await?;
 
-        self.ensure_coincidence_columns().await?;
+        self.ensure_coincidence_columns(verboser).await?;
 
         // Insert config only if not already present
+        verboser.debug("SQLite: inserting default configuration if missing");
         sqlx::query(
             "INSERT OR IGNORE INTO configuration_rustcrape (id, search_query, zoom, version) VALUES (1, ?, ?, 1)",
         )
@@ -143,24 +151,34 @@ impl SqlitePersistence {
         {
             params.search_query = row.get("search_query");
             params.zoom = row.get("zoom");
+            verboser.debug(&format!(
+                "SQLite: loaded persisted config (search_query='{}', zoom={})",
+                params.search_query, params.zoom
+            ));
         }
 
         Ok(())
     }
 
-    async fn ensure_coincidence_columns(&self) -> Result<()> {
+    async fn ensure_coincidence_columns(&self, verboser: &impl Verboser) -> Result<()> {
         let rows = sqlx::query("PRAGMA table_info(coincidences)")
             .fetch_all(&self.pool)
             .await?;
         let existing: HashSet<String> = rows.iter().map(|r| r.get("name")).collect();
+        verboser.debug(&format!(
+            "SQLite: existing coincidences columns: {:?}",
+            existing
+        ));
 
         if existing.contains("maps") && !existing.contains("source_url") {
+            verboser.debug("SQLite: migrating column 'maps' -> 'source_url'");
             sqlx::raw_sql("ALTER TABLE coincidences RENAME COLUMN maps TO source_url")
                 .execute(&self.pool)
                 .await?;
         }
 
         if !existing.contains("source") {
+            verboser.debug("SQLite: adding column 'source'");
             sqlx::raw_sql("ALTER TABLE coincidences ADD COLUMN source TEXT NOT NULL DEFAULT ''")
                 .execute(&self.pool)
                 .await?;
@@ -181,6 +199,7 @@ impl SqlitePersistence {
 
         for col in NEW_COINCIDENCE_COLUMNS {
             if !existing.contains(*col) {
+                verboser.debug(&format!("SQLite: adding column '{col}'"));
                 sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "ALTER TABLE coincidences ADD COLUMN {} TEXT",
                     col

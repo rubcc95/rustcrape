@@ -69,11 +69,25 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     let prev = public_ip(http).await?;
+    v.debug(&format!("VPN: current public IP before command: {prev}"));
+
+    let args: Vec<std::ffi::OsString> = args
+        .into_iter()
+        .map(|a| a.as_ref().to_os_string())
+        .collect();
+    v.debug(&format!(
+        "VPN: running {} {:?}",
+        path.display(),
+        args
+    ));
+
     Command::new(path)
-        .args(args)
+        .args(&args)
         .kill_on_drop(true)
         .status()
         .await?;
+
+    v.debug("VPN: command finished, waiting for the public IP to change");
     wait_until(
         || async {
             let curr = public_ip(http).await;
@@ -107,9 +121,12 @@ async fn rotate_vpn(ctx: &Context) -> Result<()> {
     let v = ctx.verboser();
     v.vpn_rotating();
     let http = ctx.http();
+    v.debug(&format!("VPN: nordvpn binary at {}", path.display()));
     run_vpn_command(["-d"], http, path, v).await?;
     v.debug("VPN disconnected");
-    run_vpn_command(["-c", "-g", random_country()], http, path, v).await?;
+    let country = random_country();
+    v.debug(&format!("VPN: connecting to country '{country}'"));
+    run_vpn_command(["-c", "-g", country], http, path, v).await?;
     v.debug("VPN connected");
 
     Ok(())
@@ -158,11 +175,15 @@ impl VpnRotator {
 
     /// Debe llamarse una vez por tarea procesada (por cualquier target).
     pub async fn tick(&self, ctx: &Context) -> Result<bool> {
-        let should_rotate = {
+        let (count, should_rotate) = {
             let mut counter = self.counter.lock().unwrap();
             *counter = counter.wrapping_add(1);
-            self.frequency > 0 && *counter >= self.frequency
+            (*counter, self.frequency > 0 && *counter >= self.frequency)
         };
+        ctx.verboser().debug(&format!(
+            "VPN tick: counter={count}, frequency={}, rotate={should_rotate}",
+            self.frequency
+        ));
 
         if !should_rotate {
             return Ok(false);
@@ -191,6 +212,8 @@ impl VpnRotator {
         // rotacion, de modo que `frequency == 0` significa que el usuario la
         // desactivo. En ese caso no se rota aunque NordVPN este instalado.
         if self.frequency == 0 {
+            ctx.verboser()
+                .debug("VPN rotation skipped: rotation disabled (frequency=0)");
             return Ok(false);
         }
 
@@ -198,9 +221,12 @@ impl VpnRotator {
         // lanzar comandos NordVPN solapados.
         Ok(match RotationGuard::new(self) {
             Some(guard) => {
+                ctx.verboser().debug("VPN rotation: starting");
                 rotate_vpn(ctx).await?;
                 *self.counter.lock().unwrap() = 0;
                 drop(guard);
+                ctx.verboser()
+                    .debug("VPN rotation: finished, counter reset to 0");
                 true
             }
             None => {

@@ -45,9 +45,12 @@ impl Scraper for EmpresiteHttpScraper {
         &self,
         _: &Config,
         persist: &P,
-        _verboser: &dyn Verboser,
+        verboser: &dyn Verboser,
     ) -> Result<()> {
-        if !persist.has_empresite_pages().await? {
+        if persist.has_empresite_pages().await? {
+            verboser.debug("Empresite HTTP seed: pages already present, nothing to do");
+        } else {
+            verboser.debug("Empresite HTTP seed: inserting first listing page (PgNum-1)");
             persist.insert_empresite_page(1).await?;
         }
         Ok(())

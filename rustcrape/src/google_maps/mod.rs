@@ -68,12 +68,18 @@ impl Scraper for GoogleMapsScraper {
         verboser: &dyn Verboser,
     ) -> Result<()> {
         if persist.has_bounds().await? {
+            verboser.debug("Google Maps seed: bounds already present, skipping grid generation");
             return Ok(());
         }
+        verboser.debug("Google Maps seed: generating bounds grid for Spain");
         let centers = SPAIN
             .generate_grid(config.gmaps.zoom, verboser)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
         persist.seed_bounds(&centers).await?;
+        verboser.debug(&format!(
+            "Google Maps seed: {} bounds stored in database",
+            centers.len()
+        ));
         Ok(())
     }
 
