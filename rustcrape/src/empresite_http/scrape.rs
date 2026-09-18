@@ -544,7 +544,7 @@ async fn scrape_internal(
 
     let mut coincidences = Vec::new();
     let total_links = links.len();
-    for (idx, link) in links.into_iter().enumerate() {
+    for (idx, link) in links.into_iter().take(3).enumerate() {
         if verboser.is_cancelled() {
             break;
         }
