@@ -475,7 +475,7 @@ async fn scrape_internal(
         ));
     };
 
-    verboser.found_multiple_coincidences();
+    verboser.found_coincidences(Some(links.len()));
 
     let mut coincidences = Vec::new();
     for (idx, link) in links.into_iter().enumerate() {

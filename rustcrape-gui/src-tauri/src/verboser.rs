@@ -124,17 +124,13 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         self.emit("searching_coincidences", "Buscando coincidencias...".into());
     }
 
-    fn found_single_coincidence(&self) {
+    fn found_coincidences(&self, count: Option<usize>) {
         self.emit(
-            "found_single_coincidence",
-            "Coincidencia única encontrada".into(),
-        );
-    }
-
-    fn found_multiple_coincidences(&self) {
-        self.emit(
-            "found_multiple_coincidences",
-            "Múltiples coincidencias encontradas".into(),
+            "found_coincidences",
+            match count {
+                Some(c) => format!("Coincidencias encontradas: ({c})"),
+                None => "Coincidencias encontradas".into(),
+            },
         );
     }
 

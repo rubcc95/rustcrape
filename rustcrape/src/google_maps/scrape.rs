@@ -230,7 +230,7 @@ async fn scrape_single(
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
     let _ = params;
-    verboser.found_single_coincidence();
+    verboser.found_coincidences(Some(1));
     tokio::time::sleep(random_delay(config.delay_min, config.delay_max)).await;
     if page.find_element("h1.DUwDvf").await.is_ok() {
         let name_js = r#"( () => { const el = document.querySelector('h1.DUwDvf'); return el ? el.textContent.trim() : ''; })() "#;
@@ -333,7 +333,7 @@ async fn scrape_feed(
     config: &GMapsConfig,
     verboser: &dyn Verboser,
 ) -> Result<Vec<Coincidence>> {
-    verboser.found_multiple_coincidences();
+    verboser.found_coincidences(None);
     let mut coincidences = Vec::new();
     let mut scrolls_without_new = 0u32;
     let mut fuera = 0u32;

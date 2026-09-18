@@ -705,7 +705,7 @@ pub async fn scrape_internal(
     }
 
     let links = extract_company_links(&page).await?;
-    verboser.found_multiple_coincidences();
+    verboser.found_coincidences(Some(links.len()));
 
     let has_more = has_next_page(&page, params.page).await?;
 

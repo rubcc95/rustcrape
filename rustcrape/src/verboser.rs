@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::types::Coincidence;
+use std::time::Duration;
 
 pub trait Verboser: Send + Sync + 'static {
     // Preparacion / base de datos
@@ -22,8 +22,7 @@ pub trait Verboser: Send + Sync + 'static {
     fn scraping_start(&self);
     fn accepting_cookies(&self);
     fn searching_coincidences(&self);
-    fn found_single_coincidence(&self);
-    fn found_multiple_coincidences(&self);
+    fn found_coincidences(&self, count: Option<usize>);
     fn processed_coincidence(&self, name: &str, count: usize);
     fn writing_coincidences(&self, output: &[Coincidence]);
     fn written_coincidences(&self, inserted: u64, inserted_with_phone: u64);
@@ -77,9 +76,7 @@ impl Verboser for NoVerboser {
     #[inline(always)]
     fn searching_coincidences(&self) {}
     #[inline(always)]
-    fn found_single_coincidence(&self) {}
-    #[inline(always)]
-    fn found_multiple_coincidences(&self) {}
+    fn found_coincidences(&self, count: Option<usize>) {}
     #[inline(always)]
     fn processed_coincidence(&self, _: &str, _: usize) {}
     #[inline(always)]
@@ -154,11 +151,11 @@ impl Verboser for DebugVerboser {
     fn searching_coincidences(&self) {
         eprintln!("Searching coincidences...");
     }
-    fn found_single_coincidence(&self) {
-        eprintln!("Found single coincidence");
-    }
-    fn found_multiple_coincidences(&self) {
-        eprintln!("Found multiple coincidences");
+    fn found_coincidences(&self, count: Option<usize>) {
+        match count {
+            Some(c) => eprintln!("Found coincidences: {c}"),
+            None => eprintln!("Found coincidences"),
+        }
     }
     fn processed_coincidence(&self, name: &str, count: usize) {
         eprintln!("Processed {name} ({count} items)");
