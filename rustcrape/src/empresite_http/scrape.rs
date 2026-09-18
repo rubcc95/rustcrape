@@ -455,12 +455,15 @@ async fn scrape_internal(
 
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
-            
             html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite)).await?;
         }
 
         let links = extract_company_links(&html);
         let has_more = has_next_page(&html, params.page);
+        verboser.debug(&format!(
+            "Loaded list: {} links, next page: {has_more}",
+            links.len(),            
+        ));
         listing = Some((links, has_more));
         break;
     }

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { projectStore } from "../lib/stores/project.store.svelte";
-  import ExecutionConfig from "../components/ExecutionPanel.svelte";
   import UnsavedProjectForm from "../components/UnsavedProjectForm.svelte";
   import SavedProjectForm from "../components/SavedProjectForm.svelte";
 </script>
@@ -11,7 +10,6 @@
     {:else}
       <SavedProjectForm />
     {/if}
-   <ExecutionConfig />
 </div>
 
 <style>

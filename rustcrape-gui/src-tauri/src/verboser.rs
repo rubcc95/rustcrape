@@ -191,10 +191,13 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         self.emit("error", format!("Error: {err}"));
     }
 
+    #[cfg(not(debug_assertions))]
+    #[warn(unused_variables)]
+    #[inline(always)]
+    fn debug(&self, msg: &str) {}
 
-    #[cfg_attr(not(debug_assertions), inline(always))]
+    #[cfg(debug_assertions)]
     fn debug(&self, msg: &str) {
-        #[cfg(debug_assertions)]
         self.emit("verbose", format!("Verbose: {msg}"));
     }
 }

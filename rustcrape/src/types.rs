@@ -522,3 +522,104 @@ pub struct ProjectStats {
     pub results_found: u64,
     pub phones_found: u64,
 }
+
+/// Columna de la tabla `coincidences` por la que ordenar. Los nombres en
+/// `snake_case` coinciden con las columnas fisicas de la base de datos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoincidenceColumn {
+    Id,
+    Name,
+    Web,
+    Email,
+    Tfno,
+    SourceUrl,
+    Source,
+    Creado,
+    LegalName,
+    TaxId,
+    LegalForm,
+    Sector,
+    IncorporationDate,
+    LastChangeDate,
+    CorporatePurpose,
+    Activity,
+    CnaeActivity,
+    CompanyStatus,
+}
+
+impl CoincidenceColumn {
+    /// Nombre real de la columna en la base de datos. Se usa como whitelist
+    /// para construir la clausula `ORDER BY` sin riesgo de inyeccion SQL.
+    pub fn column_name(self) -> &'static str {
+        match self {
+            CoincidenceColumn::Id => "id",
+            CoincidenceColumn::Name => "name",
+            CoincidenceColumn::Web => "web",
+            CoincidenceColumn::Email => "email",
+            CoincidenceColumn::Tfno => "tfno",
+            CoincidenceColumn::SourceUrl => "source_url",
+            CoincidenceColumn::Source => "source",
+            CoincidenceColumn::Creado => "creado",
+            CoincidenceColumn::LegalName => "legal_name",
+            CoincidenceColumn::TaxId => "tax_id",
+            CoincidenceColumn::LegalForm => "legal_form",
+            CoincidenceColumn::Sector => "sector",
+            CoincidenceColumn::IncorporationDate => "incorporation_date",
+            CoincidenceColumn::LastChangeDate => "last_change_date",
+            CoincidenceColumn::CorporatePurpose => "corporate_purpose",
+            CoincidenceColumn::Activity => "activity",
+            CoincidenceColumn::CnaeActivity => "cnae_activity",
+            CoincidenceColumn::CompanyStatus => "company_status",
+        }
+    }
+}
+
+/// Direccion de ordenacion de una consulta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+impl SortOrder {
+    pub fn sql(self) -> &'static str {
+        match self {
+            SortOrder::Asc => "ASC",
+            SortOrder::Desc => "DESC",
+        }
+    }
+}
+
+/// Fila completa de la tabla `coincidences`, tal como se muestra en la GUI.
+/// Amplia `Coincidence` con los metadatos de persistencia (`id`, `source` y
+/// `creado`) y con todos los campos mercantiles rellenos o vacios.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CoincidenceRecord {
+    pub id: i64,
+    pub name: String,
+    pub web: String,
+    pub email: String,
+    pub tfno: String,
+    pub source_url: String,
+    pub source: String,
+    pub creado: Option<String>,
+    pub legal_name: Option<String>,
+    pub tax_id: Option<String>,
+    pub legal_form: Option<String>,
+    pub sector: Option<String>,
+    pub incorporation_date: Option<String>,
+    pub last_change_date: Option<String>,
+    pub corporate_purpose: Option<String>,
+    pub activity: Option<String>,
+    pub cnae_activity: Option<String>,
+    pub company_status: Option<String>,
+}
+
+/// Pagina de resultados de `coincidences` con el total de filas disponibles.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CoincidencePage {
+    pub rows: Vec<CoincidenceRecord>,
+    pub total: u64,
+}

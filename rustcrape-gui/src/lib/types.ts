@@ -1,4 +1,52 @@
-export type Route = "settings" | "project" | "execution";
+export type Route = "settings" | "project" | "execution" | "results";
+
+export type CoincidenceColumn =
+  | "id"
+  | "name"
+  | "web"
+  | "email"
+  | "tfno"
+  | "source_url"
+  | "source"
+  | "creado"
+  | "legal_name"
+  | "tax_id"
+  | "legal_form"
+  | "sector"
+  | "incorporation_date"
+  | "last_change_date"
+  | "corporate_purpose"
+  | "activity"
+  | "cnae_activity"
+  | "company_status";
+
+export type SortOrder = "asc" | "desc";
+
+export interface CoincidenceRecord {
+  id: number;
+  name: string;
+  web: string;
+  email: string;
+  tfno: string;
+  source_url: string;
+  source: string;
+  creado: string | null;
+  legal_name: string | null;
+  tax_id: string | null;
+  legal_form: string | null;
+  sector: string | null;
+  incorporation_date: string | null;
+  last_change_date: string | null;
+  corporate_purpose: string | null;
+  activity: string | null;
+  cnae_activity: string | null;
+  company_status: string | null;
+}
+
+export interface CoincidencePage {
+  rows: CoincidenceRecord[];
+  total: number;
+}
 
 export type ExecutionMode = "Sequential" | "Parallel";
 

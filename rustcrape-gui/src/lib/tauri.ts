@@ -7,6 +7,9 @@ import type {
   VerboserPayload,
   Announcement,
   IterationStats,
+  CoincidencePage,
+  CoincidenceColumn,
+  SortOrder,
 } from "./types";
 
 // ── Config CRUD ──
@@ -49,6 +52,22 @@ export async function runScraping(config: Config): Promise<void> {
 
 export async function loadProjectStats(config: Config): Promise<IterationStats> {
   return invoke("load_project_stats", { config });
+}
+
+export async function loadCoincidences(
+  config: Config,
+  column: CoincidenceColumn,
+  order: SortOrder,
+  page: number,
+  pageSize: number
+): Promise<CoincidencePage> {
+  return invoke("load_coincidences", {
+    config,
+    column,
+    order,
+    page,
+    pageSize,
+  });
 }
 
 export async function cancelScraping(): Promise<void> {

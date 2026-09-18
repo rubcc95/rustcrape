@@ -1,5 +1,6 @@
 <script lang="ts">
   import { projectStore } from "../lib/stores/project.store.svelte";
+  import { resultsStore } from "../lib/stores/results.store.svelte";
   import { isSqlite } from "../lib/types";
   import CheckboxNumber from "./CheckboxNumber.svelte";
   import ExecutionPanel from "./ExecutionPanel.svelte";
@@ -13,6 +14,10 @@
     return isSqlite(db)
       ? (db.path ?? "SQLite local")
       : `${db.user}@${db.host}:${db.port}/${db.database}`;
+  }
+
+  function onOpenResults(): void {
+    void resultsStore.openForCurrentProject();
   }
 </script>
 
@@ -79,7 +84,13 @@
           <span class="stat-value">{projectStore.stats.bounds_remaining}</span>
           <span class="stat-label">Tareas restantes</span>
         </div>
-        <div class="stat-card">
+        <div
+          class="stat-card clickable"
+          role="button"
+          tabindex="0"
+          onclick={onOpenResults}
+          onkeydown={(e) => e.key === "Enter" && onOpenResults()}
+        >
           <span class="stat-value">{projectStore.stats.results_found}</span>
           <span class="stat-label">Resultados</span>
         </div>
@@ -296,6 +307,23 @@
     color: var(--text-muted, #8892b0);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  .stat-card.clickable {
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      background 0.15s;
+  }
+
+  .stat-card.clickable:hover {
+    border-color: var(--primary, #4f8cff);
+    background: rgba(79, 140, 255, 0.08);
+  }
+
+  .stat-card.clickable:focus-visible {
+    outline: 2px solid var(--primary, #4f8cff);
+    outline-offset: 2px;
   }
 
   .toggle-field label {

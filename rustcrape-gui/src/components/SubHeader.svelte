@@ -2,6 +2,7 @@
   import { appStore } from "../lib/stores/app.store.svelte";
   import { projectStore } from "../lib/stores/project.store.svelte";
   import { executionStore } from "../lib/stores/execution.store.svelte";
+  import { resultsStore } from "../lib/stores/results.store.svelte";
 
   let showDeleteConfirm = $state(false);
   let statusMessage = $state("");
@@ -52,6 +53,14 @@
   function onReturn(): void {
     executionStore.returnToProject();
   }
+
+  function onResults(): void {
+    void resultsStore.openForCurrentProject();
+  }
+
+  function onBackToProject(): void {
+    appStore.navigate("project");
+  }
 </script>
 
 <div class="sub-header">
@@ -69,6 +78,7 @@
             <button class="btn-small" onclick={() => (showDeleteConfirm = false)}>No</button>
           </div>
         {/if}
+        <button class="btn-back" onclick={onResults}>Resultados</button>
       {/if}
     </div>
 
@@ -84,6 +94,10 @@
         <button class="btn-run" onclick={onResume}>Reanudar</button>
         <button class="btn-back" onclick={onReturn}>Volver</button>
       {/if}
+    </div>
+  {:else if appStore.currentRoute === "results"}
+    <div class="sub-header-left">
+      <button class="btn-back" onclick={onBackToProject}>← Volver</button>
     </div>
   {/if}
 

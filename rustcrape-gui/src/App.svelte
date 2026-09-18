@@ -6,6 +6,7 @@
   import SettingsView from "./views/SettingsView.svelte";
   import ProjectView from "./views/ProjectView.svelte";
   import ExecutionView from "./views/ExecutionView.svelte";
+  import ResultsView from "./views/ResultsView.svelte";
   import { appStore } from "./lib/stores/app.store.svelte";
   import { projectStore } from "./lib/stores/project.store.svelte";
   import { executionStore } from "./lib/stores/execution.store.svelte";
@@ -62,6 +63,13 @@
       <SubHeader />
       <div class="scroll-area">
         <ExecutionView />
+      </div>
+    </div>
+  {:else if appStore.currentRoute === "results"}
+    <div class="execution-layout">
+      <SubHeader />
+      <div class="scroll-area">
+        <ResultsView />
       </div>
     </div>
   {/if}

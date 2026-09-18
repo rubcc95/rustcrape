@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use rustcrape::db::PersistenceKind;
 use rustcrape::storage::Persistence;
-use rustcrape::types::{Config, DbConfig, ProjectStats};
+use rustcrape::types::{Config, CoincidenceColumn, CoincidencePage, DbConfig, ProjectStats, SortOrder};
 use rustcrape::verboser::NoVerboser;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -130,6 +130,36 @@ pub async fn load_project_stats(
         .await
         .map_err(|e| e.to_string())?;
     persist.stats().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_coincidences(
+    state: State<'_, AppState>,
+    config: Config,
+    column: CoincidenceColumn,
+    order: SortOrder,
+    page: u32,
+    page_size: u32,
+) -> Result<CoincidencePage, String> {
+    let resolved_db = resolve_db_config(&config.db, &state.local_data_dir);
+
+    // No crear la base de datos solo por consultar sus resultados.
+    if let DbConfig::Sqlite { path: Some(p) } = &resolved_db {
+        if !Path::new(p).exists() {
+            return Ok(CoincidencePage::default());
+        }
+    }
+
+    let mut gmaps = config.gmaps.clone();
+    let persist = PersistenceKind::create(&resolved_db, &mut gmaps, &NoVerboser)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let offset = page.saturating_sub(1).saturating_mul(page_size);
+    persist
+        .list_coincidences(column, order, page_size, offset)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

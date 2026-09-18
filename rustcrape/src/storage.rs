@@ -1,4 +1,4 @@
-use crate::types::{Coincidence, ProjectStats};
+use crate::types::{Coincidence, CoincidenceColumn, CoincidencePage, ProjectStats, SortOrder};
 use anyhow::Result;
 
 /// Resultado de persistir un lote de coincidencias: cuantas se insertaron
@@ -16,6 +16,15 @@ pub trait Persistence: Send + Sync {
 
     /// Estado agregado de la base de datos (tareas, resultados y telefonos).
     async fn stats(&self) -> Result<ProjectStats>;
+
+    /// Pagina ordenada de filas de la tabla `coincidences`.
+    async fn list_coincidences(
+        &self,
+        column: CoincidenceColumn,
+        order: SortOrder,
+        limit: u32,
+        offset: u32,
+    ) -> Result<CoincidencePage>;
 
     // --- Google Maps: rejilla de bounds ---
     async fn has_bounds(&self) -> Result<bool>;

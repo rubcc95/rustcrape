@@ -1,5 +1,8 @@
 use crate::storage::{Persistence, WriteOutcome};
-use crate::types::{Coincidence, DbConfig, GMapsConfig, ProjectStats};
+use crate::types::{
+    Coincidence, CoincidenceColumn, CoincidencePage, CoincidenceRecord, DbConfig, GMapsConfig,
+    ProjectStats, SortOrder,
+};
 use crate::verboser::Verboser;
 use anyhow::Result;
 use sqlx::{MySqlPool, Row};
@@ -209,11 +212,7 @@ impl MysqlPersistence {
         Ok(())
     }
 
-    async fn create_tables(
-        &self,
-        params: &GMapsConfig,
-        verboser: &impl Verboser,
-    ) -> Result<()> {
+    async fn create_tables(&self, params: &GMapsConfig, verboser: &impl Verboser) -> Result<()> {
         verboser.creating_tables();
         self.ensure_optional_tables().await?;
 
@@ -425,36 +424,42 @@ impl MysqlPersistence {
 }
 
 impl Persistence for MysqlPersistence {
-    async fn write_coincidences(&self, source: &str, data: Vec<Coincidence>) -> Result<WriteOutcome> {
+    async fn write_coincidences(
+        &self,
+        source: &str,
+        data: Vec<Coincidence>,
+    ) -> Result<WriteOutcome> {
         let filtered: Vec<Coincidence> = data.into_iter().filter(|c| c.has_any_data()).collect();
         if filtered.is_empty() {
             return Ok(WriteOutcome::default());
         }
         let phones_before = self.count_phones().await?;
-        let mut builder = sqlx::QueryBuilder::new(
+        let result = sqlx::QueryBuilder::new(
             "INSERT IGNORE INTO coincidences (name, web, email, tfno, source_url, source, \
              legal_name, tax_id, legal_form, sector, incorporation_date, last_change_date, \
              corporate_purpose, activity, cnae_activity, company_status) ",
-        );
-        builder.push_values(filtered, |mut b, c| {
-            b.push_bind(c.name);
-            b.push_bind(c.web.unwrap_or_default());
-            b.push_bind(c.email.unwrap_or_default());
-            b.push_bind(c.tfno.unwrap_or_default());
-            b.push_bind(c.source_url);
-            b.push_bind(source);
-            b.push_bind(c.legal_name);
-            b.push_bind(c.tax_id);
-            b.push_bind(c.legal_form);
-            b.push_bind(c.sector);
-            b.push_bind(c.incorporation_date);
-            b.push_bind(c.last_change_date);
-            b.push_bind(c.corporate_purpose);
-            b.push_bind(c.activity);
-            b.push_bind(c.cnae_activity);
-            b.push_bind(c.company_status);
-        });
-        let result = builder.build().execute(&self.pool).await?;
+        )
+        .push_values(filtered, |mut b, c| {
+            b.push_bind(c.name)
+                .push_bind(c.web.unwrap_or_default())
+                .push_bind(c.email.unwrap_or_default())
+                .push_bind(c.tfno.unwrap_or_default())
+                .push_bind(c.source_url)
+                .push_bind(source)
+                .push_bind(c.legal_name)
+                .push_bind(c.tax_id)
+                .push_bind(c.legal_form)
+                .push_bind(c.sector)
+                .push_bind(c.incorporation_date)
+                .push_bind(c.last_change_date)
+                .push_bind(c.corporate_purpose)
+                .push_bind(c.activity)
+                .push_bind(c.cnae_activity)
+                .push_bind(c.company_status);
+        })
+        .build()
+        .execute(&self.pool)
+        .await?;
         let inserted = result.rows_affected();
         let phones_after = self.count_phones().await?;
         Ok(WriteOutcome {
@@ -501,6 +506,69 @@ impl Persistence for MysqlPersistence {
             .fetch_optional(&self.pool)
             .await?
             .is_some())
+    }
+
+    async fn list_coincidences(
+        &self,
+        column: CoincidenceColumn,
+        order: SortOrder,
+        limit: u32,
+        offset: u32,
+    ) -> Result<CoincidencePage> {
+        let total: i64 = sqlx::query("SELECT CAST(COUNT(*) AS SIGNED) AS total FROM coincidences")
+            .fetch_one(&self.pool)
+            .await?
+            .get("total");
+
+        // `column_name()` y `sql()` provienen de enums, nunca de entrada del
+        // usuario: el fragmento ORDER BY es seguro frente a inyeccion SQL.
+
+        let rows = sqlx::QueryBuilder::new(
+            "SELECT id, name, web, email, tfno, source_url, source, \
+             CAST(creado AS CHAR) AS creado, legal_name, tax_id, legal_form, sector, \
+             incorporation_date, last_change_date, corporate_purpose, activity, \
+             cnae_activity, company_status \
+             FROM coincidences ORDER BY ",
+        )
+        .push(column.column_name())
+        .push(" ")
+        .push(order.sql())
+        .push(" LIMIT ")
+        .push_bind(limit as i64)
+        .push(" OFFSET ")
+        .push_bind(offset as i64)
+        .build()
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(|row| CoincidenceRecord {
+            id: row.get("id"),
+            name: row.get::<Option<String>, _>("name").unwrap_or_default(),
+            web: row.get::<Option<String>, _>("web").unwrap_or_default(),
+            email: row.get::<Option<String>, _>("email").unwrap_or_default(),
+            tfno: row.get::<Option<String>, _>("tfno").unwrap_or_default(),
+            source_url: row
+                .get::<Option<String>, _>("source_url")
+                .unwrap_or_default(),
+            source: row.get::<Option<String>, _>("source").unwrap_or_default(),
+            creado: row.get::<Option<String>, _>("creado"),
+            legal_name: row.get::<Option<String>, _>("legal_name"),
+            tax_id: row.get::<Option<String>, _>("tax_id"),
+            legal_form: row.get::<Option<String>, _>("legal_form"),
+            sector: row.get::<Option<String>, _>("sector"),
+            incorporation_date: row.get::<Option<String>, _>("incorporation_date"),
+            last_change_date: row.get::<Option<String>, _>("last_change_date"),
+            corporate_purpose: row.get::<Option<String>, _>("corporate_purpose"),
+            activity: row.get::<Option<String>, _>("activity"),
+            cnae_activity: row.get::<Option<String>, _>("cnae_activity"),
+            company_status: row.get::<Option<String>, _>("company_status"),
+        })
+        .collect();
+
+        Ok(CoincidencePage {
+            rows,
+            total: total as u64,
+        })
     }
 
     async fn seed_bounds(&self, centers: &[(f64, f64)]) -> Result<()> {
@@ -568,7 +636,6 @@ impl Persistence for MysqlPersistence {
                 None
             }
         })
-
     }
 
     async fn release_bound(&self, bound_id: i64, completed: Option<(i32, i32)>) -> Result<bool> {
@@ -630,7 +697,7 @@ impl Persistence for MysqlPersistence {
         Ok(match row {
             Some(row) => {
                 let id: i64 = row.get("id");
-                let page: u32 = row.get("page");                
+                let page: u32 = row.get("page");
                 sqlx::query(
                     r#"
                         UPDATE empresite_pages 
