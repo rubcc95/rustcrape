@@ -1,5 +1,10 @@
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rustcrape::types::Coincidence;
 use serde::Serialize;
@@ -18,13 +23,50 @@ pub struct VerboserPayload {
 pub struct TauriVerboser {
     app_handle: tauri::AppHandle,
     cancel_flag: Arc<AtomicBool>,
+    log_file: Option<Mutex<File>>,
 }
 
 impl TauriVerboser {
-    pub fn new(app_handle: tauri::AppHandle, cancel_flag: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        app_handle: tauri::AppHandle,
+        cancel_flag: Arc<AtomicBool>,
+        log_dir: PathBuf,
+        db_label: &str,
+    ) -> Self {
+        let log_file = Self::open_log(&log_dir, db_label);
         Self {
             app_handle,
             cancel_flag,
+            log_file,
+        }
+    }
+
+    /// Abre el archivo de logs de la ejecución. Un fallo al abrirlo no debe
+    /// interrumpir el scraping, por eso se degrada a `None` avisando por stderr.
+    fn open_log(log_dir: &Path, db_label: &str) -> Option<Mutex<File>> {
+        if let Err(err) = std::fs::create_dir_all(log_dir) {
+            eprintln!(
+                "No se pudo crear el directorio de logs {}: {err}",
+                log_dir.display()
+            );
+            return None;
+        }
+        let label = sanitize_label(db_label);
+        let path = log_dir.join(format!("{label}_{}.log", now_stamp()));
+        match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .write(true)
+            .open(&path)
+        {
+            Ok(file) => Some(Mutex::new(file)),
+            Err(err) => {
+                eprintln!(
+                    "No se pudo abrir el archivo de logs {}: {err}",
+                    path.display()
+                );
+                None
+            }
         }
     }
 
@@ -33,6 +75,17 @@ impl TauriVerboser {
     }
 
     fn emit_with(
+        &self,
+        kind: &str,
+        message: String,
+        inserted: Option<u64>,
+        inserted_with_phone: Option<u64>,
+    ) {
+        self.write_log(kind, &message, inserted, inserted_with_phone);
+        self.emit_event(kind, message, inserted, inserted_with_phone);
+    }
+
+    fn emit_event(
         &self,
         kind: &str,
         message: String,
@@ -48,6 +101,38 @@ impl TauriVerboser {
                 inserted_with_phone,
             },
         );
+    }
+
+    /// Escribe el payload en el archivo de logs. Se registran todos los
+    /// payloads, incluidos los de debug, tanto en modo debug como release.
+    fn write_log(
+        &self,
+        kind: &str,
+        message: &str,
+        inserted: Option<u64>,
+        inserted_with_phone: Option<u64>,
+    ) {
+        let Some(file) = &self.log_file else {
+            return;
+        };
+        let Ok(mut file) = file.lock() else {
+            return;
+        };
+        let mut line = format!("[{}] [{}] {}", now_datetime(), kind, message);
+        match (inserted, inserted_with_phone) {
+            (Some(inserted), Some(phone)) => {
+                line.push_str(&format!(
+                    " (inserted={inserted}, inserted_with_phone={phone})"
+                ));
+            }
+            (Some(inserted), None) => line.push_str(&format!(" (inserted={inserted})")),
+            (None, Some(phone)) => {
+                line.push_str(&format!(" (inserted_with_phone={phone})"));
+            }
+            (None, None) => {}
+        }
+        let _ = writeln!(file, "{line}");
+        let _ = file.flush();
     }
 }
 
@@ -187,15 +272,89 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
         self.emit("error", format!("Error: {err}"));
     }
 
-    #[cfg(not(debug_assertions))]
-    #[warn(unused_variables)]
-    #[inline(always)]
-    fn debug(&self, msg: &str) {}
-
-    #[cfg(debug_assertions)]
     fn debug(&self, msg: &str) {
-        self.emit("verbose", format!("Verbose: {msg}"));
+        let kind = "verbose";
+        let message = format!("Verbose: {msg}");
+        // El archivo de logs registra el payload siempre; la GUI solo lo
+        // muestra en modo debug.
+        self.write_log(kind, &message, None, None);
+        if cfg!(debug_assertions) {
+            self.emit_event(kind, message, None, None);
+        }
     }
+}
+
+/// Normaliza la etiqueta usada en el nombre del archivo de logs.
+fn sanitize_label(label: &str) -> String {
+    let sanitized: String = label
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    if sanitized.is_empty() {
+        "rustcrape".to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// Descompone el instante actual (UTC) en (año, mes, día, hora, minuto, segundo).
+fn now_utc() -> (i64, i64, i64, i64, i64, i64) {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = (secs / 86400) as i64;
+    let time_secs = (secs % 86400) as i64;
+    let hours = time_secs / 3600;
+    let mins = (time_secs % 3600) / 60;
+    let secs_part = time_secs % 60;
+
+    let mut y = 1970i64;
+    let mut remaining_days = days;
+    loop {
+        let days_in_year = if is_leap(y) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        y += 1;
+    }
+    let month_days: [i64; 12] = if is_leap(y) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut m = 1i64;
+    let mut d = remaining_days;
+    for (i, &md) in month_days.iter().enumerate() {
+        if d < md {
+            m = (i + 1) as i64;
+            d += 1;
+            break;
+        }
+        d -= md;
+    }
+    (y, m, d, hours, mins, secs_part)
+}
+
+/// Marca de tiempo compacta para el nombre del archivo: `YYYYMMDD-HHMMSS`.
+fn now_stamp() -> String {
+    let (y, m, d, h, min, s) = now_utc();
+    format!("{y:04}{m:02}{d:02}-{h:02}{min:02}{s:02}")
+}
+
+/// Marca de tiempo legible por línea: `YYYY-MM-DD HH:MM:SS`.
+fn now_datetime() -> String {
+    let (y, m, d, h, min, s) = now_utc();
+    format!("{y:04}-{m:02}-{d:02} {h:02}:{min:02}:{s:02}")
+}
+
+fn is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
 
     #[cfg(debug_assertions)]
     fn debug_enabled(&self) -> bool {

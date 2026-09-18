@@ -16,6 +16,7 @@ use crate::verboser::TauriVerboser;
 pub struct AppState {
     pub store: Mutex<ConfigStore>,
     pub cancel_flag: Arc<AtomicBool>,
+    pub is_scraping: Arc<AtomicBool>,
     pub local_data_dir: PathBuf,
 }
 
@@ -24,8 +25,19 @@ impl AppState {
         Self {
             store: Mutex::new(store),
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            is_scraping: Arc::new(AtomicBool::new(false)),
             local_data_dir,
         }
+    }
+}
+
+/// Restablece el flag de scraping al salir del scope, incluso si la tarea
+/// asíncrona termina con panic.
+struct ScrapingGuard(Arc<AtomicBool>);
+
+impl Drop for ScrapingGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -208,7 +220,9 @@ pub async fn run_scraping(
     }
 
     state.cancel_flag.store(false, Ordering::SeqCst);
+    state.is_scraping.store(true, Ordering::SeqCst);
     let cancel_flag = state.cancel_flag.clone();
+    let is_scraping = state.is_scraping.clone();
     let app_handle = app.clone();
 
     // Resolve SQLite path against app_local_data_dir
@@ -216,6 +230,7 @@ pub async fn run_scraping(
     config.db = resolved_db;
 
     let future = SpawnUnsafe(async move {
+        let _guard = ScrapingGuard(is_scraping);
         app_handle.emit("scraping-started", ()).ok();
         let verboser = TauriVerboser::new(app, cancel_flag);
         rustcrape::engine::run_dispatch(config, verboser).await;
