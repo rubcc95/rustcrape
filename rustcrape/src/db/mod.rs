@@ -95,6 +95,20 @@ impl Persistence for PersistenceKind {
         }
     }
 
+    async fn empresite_activity(&self) -> Result<Option<(String, String)>> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.empresite_activity().await,
+            PersistenceKind::Mysql(p) => p.empresite_activity().await,
+        }
+    }
+
+    async fn set_empresite_activity(&self, source: &str, canonical: &str) -> Result<()> {
+        match self {
+            PersistenceKind::Sqlite(p) => p.set_empresite_activity(source, canonical).await,
+            PersistenceKind::Mysql(p) => p.set_empresite_activity(source, canonical).await,
+        }
+    }
+
     async fn has_empresite_pages(&self) -> Result<bool> {
         match self {
             PersistenceKind::Sqlite(p) => p.has_empresite_pages().await,

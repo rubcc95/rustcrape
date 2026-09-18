@@ -37,6 +37,13 @@ pub trait Persistence: Send + Sync {
         completed: Option<(i32, i32)>,
     ) -> Result<bool>;
 
+    // --- Empresite: activity canonico ---
+    /// Devuelve `(slug_solicitado, slug_canonico)` que Empresite asigno al
+    /// primero, si ya se descubrio en una ejecucion anterior.
+    async fn empresite_activity(&self) -> Result<Option<(String, String)>>;
+    /// Guarda el slug canonico que Empresite asigno al slug solicitado.
+    async fn set_empresite_activity(&self, source: &str, canonical: &str) -> Result<()>;
+
     // --- Empresite: cola dinamica de paginas ---
     async fn has_empresite_pages(&self) -> Result<bool>;
     async fn insert_empresite_page(&self, page: u32) -> Result<()>;

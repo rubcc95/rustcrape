@@ -110,11 +110,15 @@ impl SqlitePersistence {
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 search_query TEXT NOT NULL,
                 zoom INTEGER NOT NULL,
-                version INTEGER NOT NULL DEFAULT 1
+                version INTEGER NOT NULL DEFAULT 1,
+                empresite_activity TEXT DEFAULT NULL,
+                empresite_activity_source TEXT DEFAULT NULL
             )",
         )
         .execute(&self.pool)
         .await?;
+
+        self.ensure_config_columns(verboser).await?;
 
         verboser.debug("SQLite: ensuring table 'empresite_pages'");
         sqlx::raw_sql(
@@ -209,6 +213,29 @@ impl SqlitePersistence {
             }
         }
 
+        Ok(())
+    }
+
+    /// Anade las columnas de activity canonico a bases de datos creadas antes
+    /// de que existiera esta funcionalidad.
+    async fn ensure_config_columns(&self, verboser: &impl Verboser) -> Result<()> {
+        let rows = sqlx::query("PRAGMA table_info(configuration_rustcrape)")
+            .fetch_all(&self.pool)
+            .await?;
+        let existing: HashSet<String> = rows.iter().map(|r| r.get("name")).collect();
+
+        const NEW_CONFIG_COLUMNS: &[&str] = &["empresite_activity", "empresite_activity_source"];
+        for col in NEW_CONFIG_COLUMNS {
+            if !existing.contains(*col) {
+                verboser.debug(&format!("SQLite: adding column configuration_rustcrape.{col}"));
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER TABLE configuration_rustcrape ADD COLUMN {} TEXT DEFAULT NULL",
+                    col
+                )))
+                .execute(&self.pool)
+                .await?;
+            }
+        }
         Ok(())
     }
 
@@ -430,6 +457,36 @@ impl Persistence for SqlitePersistence {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn empresite_activity(&self) -> Result<Option<(String, String)>> {
+        let row = sqlx::query(
+            "SELECT empresite_activity_source, empresite_activity \
+             FROM configuration_rustcrape WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.and_then(|row| {
+            let source: Option<String> = row.get("empresite_activity_source");
+            let canonical: Option<String> = row.get("empresite_activity");
+            match (source, canonical) {
+                (Some(s), Some(c)) if !s.is_empty() && !c.is_empty() => Some((s, c)),
+                _ => None,
+            }
+        }))
+    }
+
+    async fn set_empresite_activity(&self, source: &str, canonical: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE configuration_rustcrape \
+             SET empresite_activity_source = ?, empresite_activity = ? WHERE id = 1",
+        )
+        .bind(source)
+        .bind(canonical)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn has_empresite_pages(&self) -> Result<bool> {

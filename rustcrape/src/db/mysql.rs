@@ -177,6 +177,32 @@ impl MysqlPersistence {
         Ok(())
     }
 
+    /// Anade las columnas de activity canonico a bases de datos creadas antes
+    /// de que existiera esta funcionalidad.
+    async fn ensure_config_columns(&self, verboser: &impl Verboser) -> Result<()> {
+        let cols = self.get_columns("configuration_rustcrape").await?;
+        let existing: std::collections::HashSet<String> =
+            cols.into_iter().map(|c| c.name).collect();
+
+        for (name, def) in [
+            ("empresite_activity", "VARCHAR(255) DEFAULT NULL"),
+            ("empresite_activity_source", "VARCHAR(255) DEFAULT NULL"),
+        ] {
+            if !existing.contains(name) {
+                verboser.debug(&format!(
+                    "MySQL: adding column configuration_rustcrape.{name}"
+                ));
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER TABLE configuration_rustcrape ADD COLUMN {} {}",
+                    name, def
+                )))
+                .execute(&self.pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     async fn ensure_coincidence_columns(&self, verboser: &impl Verboser) -> Result<()> {
         let cols = self.get_columns("coincidences").await?;
         let existing: std::collections::HashSet<String> =
@@ -268,6 +294,8 @@ impl MysqlPersistence {
                 search_query VARCHAR(255) NOT NULL,
                 zoom INT UNSIGNED NOT NULL,
                 version INT NOT NULL DEFAULT 1,
+                empresite_activity VARCHAR(255) DEFAULT NULL,
+                empresite_activity_source VARCHAR(255) DEFAULT NULL,
                 CHECK (id = 1)
             )",
         )
@@ -355,6 +383,7 @@ impl MysqlPersistence {
             self.ensure_optional_tables(verboser).await?;
             self.ensure_bound_columns(verboser).await?;
             self.ensure_coincidence_columns(verboser).await?;
+            self.ensure_config_columns(verboser).await?;
 
             self.validate_bounds().await?;
             self.validate_coincidences().await?;
@@ -692,6 +721,36 @@ impl Persistence for MysqlPersistence {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn empresite_activity(&self) -> Result<Option<(String, String)>> {
+        let row = sqlx::query(
+            "SELECT empresite_activity_source, empresite_activity \
+             FROM configuration_rustcrape WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.and_then(|row| {
+            let source: Option<String> = row.get("empresite_activity_source");
+            let canonical: Option<String> = row.get("empresite_activity");
+            match (source, canonical) {
+                (Some(s), Some(c)) if !s.is_empty() && !c.is_empty() => Some((s, c)),
+                _ => None,
+            }
+        }))
+    }
+
+    async fn set_empresite_activity(&self, source: &str, canonical: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE configuration_rustcrape \
+             SET empresite_activity_source = ?, empresite_activity = ? WHERE id = 1",
+        )
+        .bind(source)
+        .bind(canonical)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn has_empresite_pages(&self) -> Result<bool> {

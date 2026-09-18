@@ -61,10 +61,10 @@ impl Scraper for GoogleMapsScraper {
         format!("({}, {})", params.lat, params.lng)
     }
 
-    async fn seed<P: Persistence>(
+    async fn seed(
         &self,
         config: &Config,
-        persist: &P,
+        persist: &impl Persistence,
         verboser: &dyn Verboser,
     ) -> Result<()> {
         if persist.has_bounds().await? {
@@ -83,7 +83,7 @@ impl Scraper for GoogleMapsScraper {
         Ok(())
     }
 
-    async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
+    async fn claim(&self, persist: &impl Persistence) -> Result<Option<(i64, Self::Params)>> {
         Ok(persist.claim_bound().await?.map(|(id, lat, lng)| {
             (
                 id,
@@ -98,20 +98,20 @@ impl Scraper for GoogleMapsScraper {
         }))
     }
 
-    async fn release<P: Persistence>(
+    async fn release(
         &self,
-        persist: &P,
+        persist: &impl Persistence,
         id: i64,
         done: Option<(i32, i32)>,
     ) -> Result<bool> {
         persist.release_bound(id, done).await
     }
 
-    async fn advance<P: Persistence>(
+    async fn advance(
         &self,
-        _persist: &P,
-        _params: &Self::Params,
-        _has_more: bool,
+        _: &impl Persistence,
+        _: &Self::Params,
+        _: bool,
     ) -> Result<()> {
         Ok(())
     }
@@ -122,6 +122,7 @@ impl Scraper for GoogleMapsScraper {
         config: &Config,
         params: &Self::Params,
         ctx: &Context,
+        _: &impl Persistence,
     ) -> Result<ScrapeResult> {
         scrape::scrape(params, config, ctx).await
     }

@@ -61,10 +61,10 @@ impl Scraper for EmpresiteScraper {
         format!("página {}", params.page)
     }
 
-    async fn seed<P: Persistence>(
+    async fn seed(
         &self,
         _: &Config,
-        persist: &P,
+        persist: &impl Persistence,
         verboser: &dyn Verboser,
     ) -> Result<()> {
         if persist.has_empresite_pages().await? {
@@ -76,7 +76,7 @@ impl Scraper for EmpresiteScraper {
         Ok(())
     }
 
-    async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>> {
+    async fn claim(&self, persist: &impl Persistence) -> Result<Option<(i64, Self::Params)>> {
         Ok(persist.claim_empresite_page().await?.map(|(id, page)| {
             (
                 id,
@@ -85,23 +85,23 @@ impl Scraper for EmpresiteScraper {
                     // headless: self.config.headless,
                     // browser_path: self.browser_path.as_deref(),
                     // profile_dir: self.profile_dir.as_deref(),
-                },
+                }, 
             )
         }))
     }
 
-    async fn release<P: Persistence>(
+    async fn release(
         &self,
-        persist: &P,
+        persist: &impl Persistence,
         id: i64,
         done: Option<(i32, i32)>,
     ) -> Result<bool> {
         persist.release_empresite_page(id, done).await
     }
 
-    async fn advance<P: Persistence>(
+    async fn advance(
         &self,
-        persist: &P,
+        persist: &impl Persistence,
         params: &Self::Params,
         has_more: bool,
     ) -> Result<()> {
@@ -119,7 +119,8 @@ impl Scraper for EmpresiteScraper {
         config: &Config,
         params: &Self::Params,
         ctx: &Context,
+        persist: &impl Persistence,
     ) -> Result<ScrapeResult> {
-        scrape::scrape(params, config, ctx).await
+        scrape::scrape(params, config, ctx, persist).await
     }
 }

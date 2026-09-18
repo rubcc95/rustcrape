@@ -3,8 +3,9 @@ use serde::Deserialize;
 
 use crate::browser::Browser;
 use crate::context::Context;
-use crate::empresite::config::EmpresiteParams;
+use crate::empresite::config::{activity_from_url, activity_slug, EmpresiteParams};
 use crate::scraper::ScrapeResult;
+use crate::storage::Persistence;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::*;
 use crate::verboser::Verboser;
@@ -563,33 +564,6 @@ fn clean_empresite_url(url: &str) -> String {
         .to_string()
 }
 
-/// Convierte el texto de la actividad en un slug apto para la URL de Empresite:
-/// mayusculas, sin acentos, espacios por guiones y solo caracteres aceptados en
-/// una URL (alfanumericos, `-`, `_`, `.` y `~`).
-fn activity_slug(query: &str) -> String {
-    let mut slug = String::with_capacity(query.len());
-    for ch in query.trim().to_uppercase().chars() {
-        let ch = match ch {
-            'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => 'A',
-            'É' | 'È' | 'Ë' | 'Ê' => 'E',
-            'Í' | 'Ì' | 'Ï' | 'Î' => 'I',
-            'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' => 'O',
-            'Ú' | 'Ù' | 'Ü' | 'Û' => 'U',
-            'Ç' => 'C',
-            'Ñ' => 'N',
-            other => other,
-        };
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            slug.push(ch);
-        } else if ch.is_whitespace() || ch == '-' {
-            if !slug.ends_with('-') {
-                slug.push('-');
-            }
-        }
-    }
-    slug.trim_matches('-').to_string()
-}
-
 /// Desenlace del scraping de una ficha.
 enum DetailOutcome {
     Found(Coincidence),
@@ -764,18 +738,31 @@ fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
 
 /// Scrapea una pagina del listado de Empresite: extrae los enlaces a las fichas
 /// y, para cada una, abre su detalle y registra los datos de contacto.
-pub async fn scrape_internal(
+pub async fn scrape_internal<P: Persistence>(
     browser: &mut Browser,
     params: &EmpresiteParams,
     config: &Config,
     ctx: &Context,
+    persist: &P,
 ) -> Result<ScrapeResult> {
     let verboser = ctx.verboser();
 
     verboser.searching_coincidences();
 
-    let activity = activity_slug(&config.empresite.search_query);
-    let url = listing_url(&activity, params.page, &config.empresite);
+    let requested = activity_slug(&config.empresite.search_query);
+    // Empresite puede canonicalizar el nombre de la actividad. Si ya lo
+    // descubrimos antes para este mismo termino, usamos el canonico.
+    let mut activity = match persist.empresite_activity().await? {
+        Some((source, canonical)) if source == requested => {
+            verboser.debug(&format!(
+                "Empresite listing: using persisted canonical activity \
+                 '{canonical}' (requested '{requested}')"
+            ));
+            canonical
+        }
+        _ => requested.clone(),
+    };
+    let mut url = listing_url(&activity, params.page, &config.empresite);
     verboser.debug(&format!(
         "Empresite listing: activity slug='{activity}', page={}, url={url}",
         params.page
@@ -785,6 +772,42 @@ pub async fn scrape_internal(
 
     verboser.debug("Empresite listing: waiting for initial navigation");
     page.wait_for_navigation().await?;
+
+    // Si Empresite renombra la actividad, la redireccion pierde el PgNum y
+    // devuelve siempre la pagina 1. Fijamos el nombre canonico y, si no
+    // estabamos en la primera pagina, recargamos la pagina correcta.
+    if let Some(final_url) = page.url().await? {
+        if let Some(final_activity) = activity_from_url(&final_url) {
+            if final_activity != activity {
+                verboser.warn(&format!(
+                    "Empresite cambio el activity '{activity}' -> '{final_activity}'; \
+                     fijandolo para las siguientes paginas"
+                ));
+                if let Err(err) = persist
+                    .set_empresite_activity(&requested, &final_activity)
+                    .await
+                {
+                    verboser.error(&format!(
+                        "No se pudo persistir el activity canonico \
+                         '{final_activity}': {err}"
+                    ));
+                }
+                activity = final_activity;
+
+                if params.page > 1 {
+                    url = listing_url(&activity, params.page, &config.empresite);
+                    verboser.debug(&format!(
+                        "Empresite listing: reloading page {} with canonical \
+                         activity -> {url}",
+                        params.page
+                    ));
+                    page.goto(url.clone()).await?;
+                    page.wait_for_navigation().await?;
+                }
+            }
+        }
+    }
+
     verboser.accepting_cookies();
     let _ = accept_cookies(&page, verboser).await;
 
@@ -841,10 +864,11 @@ pub async fn scrape_internal(
     Ok(ScrapeResult::new(coincidences, has_more))
 }
 
-pub async fn scrape(
+pub async fn scrape<P: Persistence>(
     params: &EmpresiteParams,
     config: &Config,
     ctx: &Context,
+    persist: &P,
 ) -> Result<ScrapeResult> {
     let verboser = ctx.verboser();
     verboser.debug(&format!(
@@ -852,7 +876,7 @@ pub async fn scrape(
         params.page, config.empresite.search_query
     ));
     let mut browser = Browser::empresite(config, verboser).await?;
-    let out = scrape_internal(&mut browser, params, config, ctx).await;
+    let out = scrape_internal(&mut browser, params, config, ctx, persist).await;
     ctx.verboser().closing_browser();
     browser.close(verboser).await?;
     out
@@ -923,24 +947,6 @@ mod tests {
             clean_empresite_url("https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html"),
             "https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html".to_string()
         );
-    }
-
-    #[test]
-    fn test_activity_slug_acentos_y_espacios() {
-        assert_eq!(
-            activity_slug("  fontanería y calefacción "),
-            "FONTANERIA-Y-CALEFACCION"
-        );
-    }
-
-    #[test]
-    fn test_activity_slug_elimina_especiales() {
-        assert_eq!(activity_slug("café/bar (centro)"), "CAFEBAR-CENTRO");
-    }
-
-    #[test]
-    fn test_activity_slug_mantiene_guion_y_bajo() {
-        assert_eq!(activity_slug("auto_escuela-test"), "AUTO_ESCUELA-TEST");
     }
 
     #[test]

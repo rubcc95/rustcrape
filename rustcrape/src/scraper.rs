@@ -57,28 +57,28 @@ pub trait Scraper: Send + Sync {
     fn describe(&self, params: &Self::Params) -> String;
 
     /// Siembra la cola de trabajo del target (idempotente).
-    async fn seed<P: Persistence>(
+    async fn seed(
         &self,
         config: &Config,
-        persist: &P,
+        persist: &impl Persistence,
         verboser: &dyn Verboser,
     ) -> Result<()>;
 
     /// Obtiene y reclama la siguiente tarea pendiente, o `None` si no quedan.
-    async fn claim<P: Persistence>(&self, persist: &P) -> Result<Option<(i64, Self::Params)>>;
+    async fn claim(&self, persist: &impl Persistence) -> Result<Option<(i64, Self::Params)>>;
 
     /// Marca una tarea como completada (`Some`) o la deja pendiente (`None`).
-    async fn release<P: Persistence>(
+    async fn release(
         &self,
-        persist: &P,
+        persist: &impl Persistence,
         id: i64,
         done: Option<(i32, i32)>,
     ) -> Result<bool>;
 
     /// Encola el siguiente trabajo a partir del actual, si corresponde.
-    async fn advance<P: Persistence>(
+    async fn advance(
         &self,
-        persist: &P,
+        persist: &impl Persistence,
         params: &Self::Params,
         has_more: bool,
     ) -> Result<()>;
@@ -90,5 +90,6 @@ pub trait Scraper: Send + Sync {
         config: &Config,
         params: &Self::Params,
         ctx: &Context,
+        persist: &impl Persistence,
     ) -> Result<ScrapeResult>;
 }

@@ -177,7 +177,7 @@ async fn run_target<S: Scraper>(
         ctx.verboser()
             .debug(&format!("Engine[{name}]: scraping task id={task_id}..."));
         let started = Instant::now();
-        let result = scraper.scrape(config, &params, ctx).await;
+        let result = scraper.scrape(config, &params, ctx, persist).await;
         ctx.verboser()
             .debug(&format!(
                 "Engine[{name}]: scrape of task id={task_id} took {:?}",
@@ -301,7 +301,7 @@ async fn run_target<S: Scraper>(
             let _ = scraper.release(persist, task_id, None).await;
             break;
         }
-        let result = scraper.scrape(config, &params, ctx).await;
+        let result = scraper.scrape(config, &params, ctx, persist).await;
 
         match result {
             Ok(result) => {

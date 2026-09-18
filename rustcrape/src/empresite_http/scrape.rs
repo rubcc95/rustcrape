@@ -4,8 +4,9 @@ use anyhow::Result;
 use scraper::{Html, Selector};
 
 use crate::context::Context;
-use crate::empresite::config::EmpresiteParams;
+use crate::empresite::config::{activity_from_url, activity_slug, EmpresiteParams};
 use crate::scraper::ScrapeResult;
+use crate::storage::Persistence;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
 use crate::utils::random_delay;
 use crate::utils::*;
@@ -18,9 +19,15 @@ const BASE_URL: &str = "https://empresite.eleconomista.es";
 
 // --- Cliente HTTP -----------------------------------------------------------
 
+/// Respuesta HTTP de una peticion: cuerpo y URL final tras redirecciones.
+struct Fetched {
+    html: String,
+    final_url: String,
+}
+
 /// Obtiene el HTML de un listado. El listado filtrado se sirve mediante un POST
 /// (params en la query, cuerpo vacío); sin filtros basta un GET.
-async fn fetch_listing(ctx: &Context, url: &str, config: &EmpresiteConfig) -> Result<String> {
+async fn fetch_listing(ctx: &Context, url: &str, config: &EmpresiteConfig) -> Result<Fetched> {
     if config.filter_query().is_empty() {
         ctx.verboser()
             .debug(&format!("Empresite HTTP listing: GET (no filters) {url}"));
@@ -32,25 +39,26 @@ async fn fetch_listing(ctx: &Context, url: &str, config: &EmpresiteConfig) -> Re
     }
 }
 
-async fn fetch_detail(ctx: &Context, url: &str) -> Result<String> {
+async fn fetch_detail(ctx: &Context, url: &str) -> Result<Fetched> {
     ctx.verboser()
         .debug(&format!("Empresite HTTP detail: fetching {url}"));
     get(ctx, url).await
 }
 
-async fn get(ctx: &Context, url: &str) -> Result<String> {
+async fn get(ctx: &Context, url: &str) -> Result<Fetched> {
     ctx.verboser().debug(&format!("HTTP GET {url}"));
     let resp = ctx.http().get(url).send().await?;
     let status = resp.status();
-    let body = resp.text().await?;
+    let final_url = resp.url().to_string();
+    let html = resp.text().await?;
     ctx.verboser().debug(&format!(
-        "HTTP GET {url} -> {status}, {} bytes",
-        body.len()
+        "HTTP GET {url} -> {status}, {} bytes (final {final_url})",
+        html.len()
     ));
-    Ok(body)
+    Ok(Fetched { html, final_url })
 }
 
-async fn post(ctx: &Context, url: &str) -> Result<String> {
+async fn post(ctx: &Context, url: &str) -> Result<Fetched> {
     ctx.verboser().debug(&format!("HTTP POST {url}"));
     let resp = ctx
         .http()
@@ -62,12 +70,13 @@ async fn post(ctx: &Context, url: &str) -> Result<String> {
         .send()
         .await?;
     let status = resp.status();
-    let body = resp.text().await?;
+    let final_url = resp.url().to_string();
+    let html = resp.text().await?;
     ctx.verboser().debug(&format!(
-        "HTTP POST {url} -> {status}, {} bytes",
-        body.len()
+        "HTTP POST {url} -> {status}, {} bytes (final {final_url})",
+        html.len()
     ));
-    Ok(body)
+    Ok(Fetched { html, final_url })
 }
 
 // --- Detección de bloqueo ---------------------------------------------------
@@ -295,31 +304,6 @@ fn clean_empresite_url(url: &str) -> String {
         .to_string()
 }
 
-/// Convierte el texto de la actividad en un slug apto para la URL de Empresite.
-fn activity_slug(query: &str) -> String {
-    let mut slug = String::with_capacity(query.len());
-    for ch in query.trim().to_uppercase().chars() {
-        let ch = match ch {
-            'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => 'A',
-            'É' | 'È' | 'Ë' | 'Ê' => 'E',
-            'Í' | 'Ì' | 'Ï' | 'Î' => 'I',
-            'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' => 'O',
-            'Ú' | 'Ù' | 'Ü' | 'Û' => 'U',
-            'Ç' => 'C',
-            'Ñ' => 'N',
-            other => other,
-        };
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            slug.push(ch);
-        } else if ch.is_whitespace() || ch == '-' {
-            if !slug.ends_with('-') {
-                slug.push('-');
-            }
-        }
-    }
-    slug.trim_matches('-').to_string()
-}
-
 /// Genera la URL del listado para una página concreta anexando los filtros.
 fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
     let base = if page <= 1 {
@@ -360,10 +344,10 @@ enum DetailOutcome {
 #[error("Captcha locked the page. VPN unable to rotate.")]
 struct CaptchaError;
 
-async fn unblock<F: Future<Output = Result<String>>>(
+async fn unblock<F: Future<Output = Result<Fetched>>>(
     ctx: &Context,
     then: impl Fn() -> F,
-) -> Result<String> {
+) -> Result<Fetched> {
     ctx.verboser()
         .debug("Empresite HTTP unblock: rotating VPN to get a new IP");
     if !ctx.vpn_rotate().await? {
@@ -399,20 +383,20 @@ async fn scrape_detail(
         verboser.debug(&format!(
             "Empresite HTTP detail #{count}: attempt {attempt}/{MAX_DETAIL_ATTEMPTS}"
         ));
-        let mut html = fetch_detail(ctx, &url).await?;
+        let mut fetched = fetch_detail(ctx, &url).await?;
 
-        if is_blocked(&html) {
+        if is_blocked(&fetched.html) {
             verboser.warn(&format!(
                 "Ficha {} bloqueada (429); rotando IP (intento {attempt})",
                 link
             ));
-            html = unblock(ctx, || fetch_detail(ctx, &url)).await?;
+            fetched = unblock(ctx, || fetch_detail(ctx, &url)).await?;
             verboser.debug(&format!(
                 "Empresite HTTP detail #{count}: unblocked on attempt {attempt}"
             ));
         }
 
-        if !is_detail_loaded(&html) {
+        if !is_detail_loaded(&fetched.html) {
             verboser.debug(&format!(
                 "Empresite HTTP detail #{count}: page not a valid detail on attempt {attempt}"
             ));
@@ -428,7 +412,7 @@ async fn scrape_detail(
             continue;
         }
 
-        let raw = extract_detail(&html);
+        let raw = extract_detail(&fetched.html);
         if raw.name.is_empty() {
             verboser.debug(&format!(
                 "Empresite HTTP detail #{count}: empty name, skipping record"
@@ -486,15 +470,28 @@ async fn scrape_detail(
 
 /// Scrapea una página del listado: obtiene el HTML, extrae los enlaces a las
 /// fichas y scrapea cada una por HTTP.
-async fn scrape_internal(
+async fn scrape_internal<P: Persistence>(
     ctx: &Context,
     params: &EmpresiteParams,
     config: &Config,
+    persist: &P,
 ) -> Result<ScrapeResult> {
     let verboser = ctx.verboser();
     verboser.searching_coincidences();
 
-    let activity = activity_slug(&config.empresite.search_query);
+    let requested = activity_slug(&config.empresite.search_query);
+    // Empresite puede canonicalizar el nombre de la actividad. Si ya lo
+    // descubrimos antes para este mismo termino, usamos el canonico.
+    let mut activity = match persist.empresite_activity().await? {
+        Some((source, canonical)) if source == requested => {
+            verboser.debug(&format!(
+                "Empresite HTTP listing: using persisted canonical activity \
+                 '{canonical}' (requested '{requested}')"
+            ));
+            canonical
+        }
+        _ => requested.clone(),
+    };
     verboser.debug(&format!(
         "Empresite HTTP listing: activity slug='{activity}', page={}",
         params.page
@@ -503,20 +500,61 @@ async fn scrape_internal(
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
     for attempt in 1..=MAX_LISTING_ATTEMPTS {
-        let url = listing_url(&activity, params.page, &config.empresite);
+        let mut url = listing_url(&activity, params.page, &config.empresite);
         verboser.debug(&format!(
             "Empresite HTTP listing: attempt {attempt}/{MAX_LISTING_ATTEMPTS} -> {url}"
         ));
-        let Ok(mut html) = fetch_listing(ctx, &url, &config.empresite).await else {
-            verboser.debug(&format!(
-                "Empresite HTTP listing: attempt {attempt} failed to fetch, retrying"
-            ));
-            continue;
+        let mut fetched = match fetch_listing(ctx, &url, &config.empresite).await {
+            Ok(fetched) => fetched,
+            Err(_) => {
+                verboser.debug(&format!(
+                    "Empresite HTTP listing: attempt {attempt} failed to fetch, retrying"
+                ));
+                continue;
+            }
         };
 
+        // Si Empresite renombra la actividad, la redireccion pierde el PgNum y
+        // devuelve siempre la pagina 1. Fijamos el nombre canonico y, si no
+        // estabamos en la primera pagina, recargamos la pagina correcta.
+        if let Some(final_activity) = activity_from_url(&fetched.final_url) {
+            if final_activity != activity {
+                verboser.warn(&format!(
+                    "Empresite cambio el activity '{activity}' -> '{final_activity}'; \
+                     fijandolo para las siguientes paginas"
+                ));
+                if let Err(err) = persist
+                    .set_empresite_activity(&requested, &final_activity)
+                    .await
+                {
+                    verboser.error(&format!(
+                        "No se pudo persistir el activity canonico \
+                         '{final_activity}': {err}"
+                    ));
+                }
+                activity = final_activity;
+
+                if params.page > 1 {
+                    url = listing_url(&activity, params.page, &config.empresite);
+                    verboser.debug(&format!(
+                        "Empresite HTTP listing: reloading page {} with canonical \
+                         activity -> {url}",
+                        params.page
+                    ));
+                    fetched = match fetch_listing(ctx, &url, &config.empresite).await {
+                        Ok(fetched) => fetched,
+                        Err(_) => continue,
+                    };
+                }
+            }
+        }
+
+        let mut html = fetched.html;
         if is_blocked(&html) {
             verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
-            html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite)).await?;
+            html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite))
+                .await?
+                .html;
             verboser.debug("Empresite HTTP listing: listing unblocked after VPN rotation");
         }
 
@@ -575,16 +613,17 @@ async fn scrape_internal(
     Ok(ScrapeResult::new(coincidences, has_more))
 }
 
-pub async fn scrape(
+pub async fn scrape<P: Persistence>(
     params: &EmpresiteParams,
     config: &Config,
     ctx: &Context,
+    persist: &P,
 ) -> Result<ScrapeResult> {
     ctx.verboser().debug(&format!(
         "Empresite HTTP: starting scrape of page {} (query='{}')",
         params.page, config.empresite.search_query
     ));
-    scrape_internal(ctx, params, config).await
+    scrape_internal(ctx, params, config, persist).await
 }
 
 #[cfg(test)]
@@ -652,24 +691,6 @@ mod tests {
             clean_empresite_url("https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html"),
             "https://empresite.eleconomista.es/BICICLETAS-MENDIZ.html".to_string()
         );
-    }
-
-    #[test]
-    fn test_activity_slug_acentos_y_espacios() {
-        assert_eq!(
-            activity_slug("  fontanería y calefacción "),
-            "FONTANERIA-Y-CALEFACCION"
-        );
-    }
-
-    #[test]
-    fn test_activity_slug_elimina_especiales() {
-        assert_eq!(activity_slug("café/bar (centro)"), "CAFEBAR-CENTRO");
-    }
-
-    #[test]
-    fn test_activity_slug_mantiene_guion_y_bajo() {
-        assert_eq!(activity_slug("auto_escuela-test"), "AUTO_ESCUELA-TEST");
     }
 
     #[test]
