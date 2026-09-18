@@ -3,7 +3,9 @@ use serde::Deserialize;
 
 use crate::browser::Browser;
 use crate::context::Context;
-use crate::empresite::config::{activity_from_url, activity_slug, EmpresiteParams};
+use crate::empresite::config::{
+    activity_action, activity_slug, ActivityAction, EmpresiteParams,
+};
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
@@ -570,6 +572,41 @@ enum DetailOutcome {
     Skipped,
 }
 
+/// Comprueba la URL final de la pagina y, si Empresite renombro la actividad,
+/// fija el nombre canonico. Devuelve `true` si hay que recargar la pagina
+/// porque la redireccion perdio el `PgNum`.
+///
+/// Debe llamarse con la pagina ya cargada (no bloqueada): la pantalla de
+/// captcha no redirige y no revela el activity canonico.
+async fn resolve_activity<P: Persistence>(
+    page: &Page,
+    requested: &str,
+    activity: &mut String,
+    page_num: u32,
+    persist: &P,
+    verboser: &dyn Verboser,
+) -> Result<bool> {
+    let Some(final_url) = page.url().await? else {
+        return Ok(false);
+    };
+    match activity_action(activity, &final_url, page_num) {
+        ActivityAction::Keep => Ok(false),
+        ActivityAction::Renamed { canonical, reload } => {
+            verboser.warn(&format!(
+                "Empresite cambio el activity '{activity}' -> '{canonical}'; \
+                 fijandolo para las siguientes paginas"
+            ));
+            if let Err(err) = persist.set_empresite_activity(requested, &canonical).await {
+                verboser.error(&format!(
+                    "No se pudo persistir el activity canonico '{canonical}': {err}"
+                ));
+            }
+            *activity = canonical;
+            Ok(reload)
+        }
+    }
+}
+
 /// Maximo de veces que se intenta abrir una misma ficha antes de darla por
 /// inaccesible. No se pasa a la siguiente hasta agotar los intentos.
 const MAX_DETAIL_ATTEMPTS: usize = 3;
@@ -773,41 +810,6 @@ pub async fn scrape_internal<P: Persistence>(
     verboser.debug("Empresite listing: waiting for initial navigation");
     page.wait_for_navigation().await?;
 
-    // Si Empresite renombra la actividad, la redireccion pierde el PgNum y
-    // devuelve siempre la pagina 1. Fijamos el nombre canonico y, si no
-    // estabamos en la primera pagina, recargamos la pagina correcta.
-    if let Some(final_url) = page.url().await? {
-        if let Some(final_activity) = activity_from_url(&final_url) {
-            if final_activity != activity {
-                verboser.warn(&format!(
-                    "Empresite cambio el activity '{activity}' -> '{final_activity}'; \
-                     fijandolo para las siguientes paginas"
-                ));
-                if let Err(err) = persist
-                    .set_empresite_activity(&requested, &final_activity)
-                    .await
-                {
-                    verboser.error(&format!(
-                        "No se pudo persistir el activity canonico \
-                         '{final_activity}': {err}"
-                    ));
-                }
-                activity = final_activity;
-
-                if params.page > 1 {
-                    url = listing_url(&activity, params.page, &config.empresite);
-                    verboser.debug(&format!(
-                        "Empresite listing: reloading page {} with canonical \
-                         activity -> {url}",
-                        params.page
-                    ));
-                    page.goto(url.clone()).await?;
-                    page.wait_for_navigation().await?;
-                }
-            }
-        }
-    }
-
     verboser.accepting_cookies();
     let _ = accept_cookies(&page, verboser).await;
 
@@ -816,13 +818,28 @@ pub async fn scrape_internal<P: Persistence>(
         return Ok(ScrapeResult::empty(false));
     }
 
-    // El listado puede venir bloqueado por captcha.
+    // El listado puede venir bloqueado por captcha. Se resuelve antes de leer
+    // la URL final: la pantalla de bloqueo no redirige al activity canonico.
     verboser.debug("Empresite listing: checking captcha/429 block");
     if has_captcha(&page).await? {
         unblock(browser, &mut page, &config, ctx, |_page| async move {
             Ok(true)
         })
         .await?;
+    }
+
+    // Si Empresite renombro la actividad, la redireccion pierde el PgNum y
+    // devuelve siempre la pagina 1. Se fija el nombre canonico y, si no
+    // estabamos en la primera pagina, se recarga la pagina correcta.
+    if resolve_activity(&page, &requested, &mut activity, params.page, persist, verboser).await? {
+        url = listing_url(&activity, params.page, &config.empresite);
+        verboser.debug(&format!(
+            "Empresite listing: reloading page {} with canonical activity -> {url}",
+            params.page
+        ));
+        page.goto(url.clone()).await?;
+        page.wait_for_navigation().await?;
+        let _ = accept_cookies(&page, verboser).await;
     }
 
     let links = extract_company_links(&page, verboser).await?;

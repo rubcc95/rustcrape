@@ -51,6 +51,32 @@ pub fn activity_from_url(url: &str) -> Option<String> {
     }
 }
 
+/// Accion a tomar tras cargar un listado, segun el activity que Empresite haya
+/// decidido frente al solicitado.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ActivityAction {
+    /// No hay cambio: se puede parsear la pagina tal cual.
+    Keep,
+    /// Empresite renombro la actividad. Hay que fijar `canonical` y, si la
+    /// redireccion perdio el `PgNum`, recargar la pagina con ese nombre.
+    Renamed { canonical: String, reload: bool },
+}
+
+/// Decide si hay que corregir el activity a partir de la URL final servida.
+///
+/// Importante: debe llamarse con la respuesta real (200), nunca con el 429 de
+/// bloqueo, porque una pagina bloqueada no redirige y no revela el nombre
+/// canonico.
+pub fn activity_action(requested: &str, final_url: &str, page: u32) -> ActivityAction {
+    match activity_from_url(final_url) {
+        Some(canonical) if canonical != requested => ActivityAction::Renamed {
+            canonical,
+            reload: page > 1,
+        },
+        _ => ActivityAction::Keep,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +133,74 @@ mod tests {
         assert_eq!(
             activity_from_url("https://empresite.eleconomista.es/empresas-provincia/"),
             None
+        );
+    }
+
+    #[test]
+    fn test_activity_action_sin_cambio() {
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTO/",
+                1
+            ),
+            ActivityAction::Keep
+        );
+    }
+
+    #[test]
+    fn test_activity_action_429_no_redirige() {
+        // El 429 devuelve la URL solicitada: no debe interpretarse como cambio.
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTO/PgNum-2/",
+                2
+            ),
+            ActivityAction::Keep
+        );
+    }
+
+    #[test]
+    fn test_activity_action_renombrado_pagina_1() {
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/",
+                1
+            ),
+            ActivityAction::Renamed {
+                canonical: "MANTENIMIENTOS".to_string(),
+                reload: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_activity_action_renombrado_pagina_2_recarga() {
+        // La redireccion perdio el PgNum: hay que recargar la pagina 2.
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/",
+                2
+            ),
+            ActivityAction::Renamed {
+                canonical: "MANTENIMIENTOS".to_string(),
+                reload: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_activity_action_url_sin_actividad() {
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/empresas-provincia/",
+                2
+            ),
+            ActivityAction::Keep
         );
     }
 }

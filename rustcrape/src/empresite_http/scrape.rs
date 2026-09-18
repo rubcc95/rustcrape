@@ -4,7 +4,9 @@ use anyhow::Result;
 use scraper::{Html, Selector};
 
 use crate::context::Context;
-use crate::empresite::config::{activity_from_url, activity_slug, EmpresiteParams};
+use crate::empresite::config::{
+    activity_action, activity_slug, ActivityAction, EmpresiteParams,
+};
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
 use crate::types::{Coincidence, Config, EmpresiteConfig};
@@ -500,7 +502,7 @@ async fn scrape_internal<P: Persistence>(
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
     for attempt in 1..=MAX_LISTING_ATTEMPTS {
-        let mut url = listing_url(&activity, params.page, &config.empresite);
+        let url = listing_url(&activity, params.page, &config.empresite);
         verboser.debug(&format!(
             "Empresite HTTP listing: attempt {attempt}/{MAX_LISTING_ATTEMPTS} -> {url}"
         ));
@@ -514,50 +516,48 @@ async fn scrape_internal<P: Persistence>(
             }
         };
 
+        // El bloqueo (429) no redirige, asi que hay que desbloquear antes de
+        // leer la URL final: es en la respuesta real donde aparece el activity
+        // canonico que decidio Empresite.
+        if is_blocked(&fetched.html) {
+            verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
+            fetched = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite)).await?;
+            verboser.debug("Empresite HTTP listing: listing unblocked after VPN rotation");
+            if is_blocked(&fetched.html) {
+                verboser.warn("Listado aun bloqueado tras rotar IP; reintentando");
+                continue;
+            }
+        }
+
         // Si Empresite renombra la actividad, la redireccion pierde el PgNum y
         // devuelve siempre la pagina 1. Fijamos el nombre canonico y, si no
         // estabamos en la primera pagina, recargamos la pagina correcta.
-        if let Some(final_activity) = activity_from_url(&fetched.final_url) {
-            if final_activity != activity {
+        match activity_action(&activity, &fetched.final_url, params.page) {
+            ActivityAction::Keep => {}
+            ActivityAction::Renamed { canonical, reload } => {
                 verboser.warn(&format!(
-                    "Empresite cambio el activity '{activity}' -> '{final_activity}'; \
+                    "Empresite cambio el activity '{activity}' -> '{canonical}'; \
                      fijandolo para las siguientes paginas"
                 ));
-                if let Err(err) = persist
-                    .set_empresite_activity(&requested, &final_activity)
-                    .await
-                {
+                if let Err(err) = persist.set_empresite_activity(&requested, &canonical).await {
                     verboser.error(&format!(
-                        "No se pudo persistir el activity canonico \
-                         '{final_activity}': {err}"
+                        "No se pudo persistir el activity canonico '{canonical}': {err}"
                     ));
                 }
-                activity = final_activity;
+                activity = canonical;
 
-                if params.page > 1 {
-                    url = listing_url(&activity, params.page, &config.empresite);
+                if reload {
                     verboser.debug(&format!(
                         "Empresite HTTP listing: reloading page {} with canonical \
-                         activity -> {url}",
+                         activity '{activity}'",
                         params.page
                     ));
-                    fetched = match fetch_listing(ctx, &url, &config.empresite).await {
-                        Ok(fetched) => fetched,
-                        Err(_) => continue,
-                    };
+                    continue;
                 }
             }
         }
 
-        let mut html = fetched.html;
-        if is_blocked(&html) {
-            verboser.warn("Listado bloqueado (429); rotando IP y reintentando");
-            html = unblock(ctx, || fetch_listing(ctx, &url, &config.empresite))
-                .await?
-                .html;
-            verboser.debug("Empresite HTTP listing: listing unblocked after VPN rotation");
-        }
-
+        let html = fetched.html;
         let links = extract_company_links(&html);
         let has_more = has_next_page(&html, params.page);
         verboser.debug(&format!(
