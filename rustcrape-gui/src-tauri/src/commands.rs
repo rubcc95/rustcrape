@@ -123,6 +123,20 @@ fn resolve_db_config(db: &DbConfig, data_dir: &Path) -> DbConfig {
     }
 }
 
+/// Deriva una etiqueta legible desde la configuración de base de datos para
+/// nombrar el archivo de logs de cada ejecución.
+fn db_label(db: &DbConfig) -> String {
+    match db {
+        DbConfig::Sqlite { path: Some(p) } => Path::new(p)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("rustcrape")
+            .to_string(),
+        DbConfig::Sqlite { path: None } => "rustcrape".to_string(),
+        DbConfig::Mysql { database, .. } => database.clone(),
+    }
+}
+
 #[tauri::command]
 pub async fn load_project_stats(
     state: State<'_, AppState>,
@@ -228,11 +242,12 @@ pub async fn run_scraping(
     // Resolve SQLite path against app_local_data_dir
     let resolved_db = resolve_db_config(&config.db, &state.local_data_dir);
     config.db = resolved_db;
+    let log_label = db_label(&config.db);
+    let log_dir = state.local_data_dir.join("logs");
 
     let future = SpawnUnsafe(async move {
-        let _guard = ScrapingGuard(is_scraping);
         app_handle.emit("scraping-started", ()).ok();
-        let verboser = TauriVerboser::new(app, cancel_flag);
+        let verboser = TauriVerboser::new(app, cancel_flag, log_dir, &log_label);
         rustcrape::engine::run_dispatch(config, verboser).await;
         app_handle.emit("scraping-finished", ()).ok();
     });

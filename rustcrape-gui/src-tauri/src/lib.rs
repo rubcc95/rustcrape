@@ -25,8 +25,8 @@ pub fn run() {
         // activamos el flag de cancelación (igual que el botón "Pausar"),
         // ocultamos la ventana y esperamos a que el motor escriba los datos
         // pendientes antes de salir.
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api } = event {
+        .on_window_event(|window, event| { 
+            if let WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
                 if state.is_scraping.load(Ordering::SeqCst) {
                     api.prevent_close();

@@ -282,6 +282,12 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
             self.emit_event(kind, message, None, None);
         }
     }
+
+    /// Devuelve `true` siempre: aunque en release la GUI no reciba los
+    /// mensajes de debug, el archivo de logs sí debe registrarlos.
+    fn debug_enabled(&self) -> bool {
+        true
+    }
 }
 
 /// Normaliza la etiqueta usada en el nombre del archivo de logs.
@@ -354,10 +360,4 @@ fn now_datetime() -> String {
 
 fn is_leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}
-
-    #[cfg(debug_assertions)]
-    fn debug_enabled(&self) -> bool {
-        true
-    }
 }
