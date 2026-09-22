@@ -204,7 +204,7 @@ impl VpnRotator {
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
-    async fn force_rotate(&self, ctx: &Context) -> Result<bool> {
+    pub async fn force_rotate(&self, ctx: &Context) -> Result<bool> {
         // VPN desactivada: la casilla de la GUI va ligada a la frecuencia de
         // rotacion, de modo que `frequency == 0` significa que el usuario la
         // desactivo. En ese caso no se rota aunque NordVPN este instalado.
