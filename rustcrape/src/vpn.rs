@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::process::Command;
 
 use crate::context::Context;
-use crate::utils::wait_until;
+use crate::utils::{WaitUntilTimeoutError, wait_until};
 use crate::verboser::Verboser;
 
 /// Servicio que devuelve la IP publica de salida.
@@ -63,7 +63,7 @@ async fn run_vpn_command<I, S>(
     http: &reqwest::Client,
     path: &Path,
     v: &dyn Verboser,
-) -> Result<()>
+) -> Result<bool>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
@@ -75,11 +75,7 @@ where
         .into_iter()
         .map(|a| a.as_ref().to_os_string())
         .collect();
-    v.debug(&format!(
-        "VPN: running {} {:?}",
-        path.display(),
-        args
-    ));
+    v.debug(&format!("VPN: running {} {:?}", path.display(), args));
 
     Command::new(path)
         .args(&args)
@@ -88,7 +84,7 @@ where
         .await?;
 
     v.debug("VPN: command finished, waiting for the public IP to change");
-    wait_until(
+    let output = wait_until(
         || async {
             let curr = public_ip(http).await;
             let curr = match curr {
@@ -105,11 +101,16 @@ where
             Ok(if curr == prev { None } else { Some(curr) })
         },
         Duration::from_millis(500),
-        (),
+        Duration::from_secs(60),
     )
-    .await?;
+    .await;
+    if let Err(err) = output {
+        if err.downcast::<WaitUntilTimeoutError>().is_ok() {
+            return Ok(false);
+        }
+    }
 
-    Ok(())
+    Ok(true)
 }
 
 async fn rotate_vpn(ctx: &Context) -> Result<()> {
@@ -119,15 +120,23 @@ async fn rotate_vpn(ctx: &Context) -> Result<()> {
     };
 
     let v = ctx.verboser();
-    v.vpn_rotating();
-    let http = ctx.http();
-    v.debug(&format!("VPN: nordvpn binary at {}", path.display()));
-    run_vpn_command(["-d"], http, path, v).await?;
-    v.debug("VPN disconnected");
-    let country = random_country();
-    v.debug(&format!("VPN: connecting to country '{country}'"));
-    run_vpn_command(["-c", "-g", country], http, path, v).await?;
-    v.debug("VPN connected");
+    loop {
+        v.vpn_rotating();
+        let http = ctx.http();
+        v.debug(&format!("VPN: nordvpn binary at {}", path.display()));
+        let success = run_vpn_command(["-d"], http, path, v).await?;
+        v.debug(match success {
+            true => "VPN disconnected successfully",
+            false => "VPN disconnect command finished but public IP did not change",
+        });
+        let country = random_country();
+        v.debug(&format!("VPN: connecting to country '{country}'"));
+        if run_vpn_command(["-c", "-g", country], http, path, v).await? {
+            break;
+        }
+        v.debug("VPN: connect command finished but public IP did not change");
+        v.debug("VPN connected successfully");
+    }
 
     Ok(())
 }
@@ -195,19 +204,7 @@ impl VpnRotator {
     /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
     /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
     /// configurada, no esta disponible o fallo la conexion.
-    pub async fn force_rotate(&self, ctx: &Context) -> Result<bool> {
-        // let Some(path) = &self.path else {
-        //     ctx.verboser().vpn_not_available();
-        //     return Ok(false);
-        // };
-
-        self.force_rotate_internal(ctx).await
-    }
-
-    /// Fuerza una rotacion inmediata a peticion del scraper. Devuelve `true` si
-    /// la rotacion tuvo exito; `false` si la VPN esta desactivada, no hay ruta
-    /// configurada, no esta disponible o fallo la conexion.
-    async fn force_rotate_internal(&self, ctx: &Context) -> Result<bool> {
+    async fn force_rotate(&self, ctx: &Context) -> Result<bool> {
         // VPN desactivada: la casilla de la GUI va ligada a la frecuencia de
         // rotacion, de modo que `frequency == 0` significa que el usuario la
         // desactivo. En ese caso no se rota aunque NordVPN este instalado.
