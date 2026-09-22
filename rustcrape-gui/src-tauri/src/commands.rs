@@ -31,16 +31,6 @@ impl AppState {
     }
 }
 
-/// Restablece el flag de scraping al salir del scope, incluso si la tarea
-/// asíncrona termina con panic.
-struct ScrapingGuard(Arc<AtomicBool>);
-
-impl Drop for ScrapingGuard {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-}
-
 #[tauri::command]
 pub fn list_configs(state: State<'_, AppState>) -> Result<Vec<SavedConfig>, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
@@ -232,11 +222,10 @@ pub async fn run_scraping(
             unsafe { self.map_unchecked_mut(|s| &mut s.0).poll(cx) }
         }
     }
-
+ 
     state.cancel_flag.store(false, Ordering::SeqCst);
     state.is_scraping.store(true, Ordering::SeqCst);
-    let cancel_flag = state.cancel_flag.clone();
-    let is_scraping = state.is_scraping.clone();
+    let cancel_flag = state.cancel_flag.clone();    
     let app_handle = app.clone();
 
     // Resolve SQLite path against app_local_data_dir
