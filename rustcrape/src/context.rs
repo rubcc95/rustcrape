@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use anyhow::Result;
+use tokio_util::sync::CancellationToken;
 
 use crate::verboser::Verboser;
 use crate::vpn::VpnRotator;
@@ -21,6 +22,7 @@ pub struct Context {
     verboser: Arc<dyn Verboser>,
     vpn: Arc<VpnRotator>,
     http: reqwest::Client,
+    cancel: CancellationToken,
 }
 
 impl Context {
@@ -64,6 +66,10 @@ impl Context {
             .build()
             .expect("no se pudo construir el cliente HTTP global");
 
+        let cancel = verboser
+            .cancellation()
+            .unwrap_or_else(CancellationToken::new);
+
         verboser.debug(&format!(
             "Context: HTTP client ready (browser-like headers, cookie store); \
              vpn_configured={}, ip_rotation_frequency={frequency}",
@@ -74,6 +80,7 @@ impl Context {
             verboser: Arc::new(verboser),
             vpn: Arc::new(VpnRotator::new(nordvpn_path, frequency)),
             http,
+            cancel,
         }
     }
 
@@ -92,6 +99,13 @@ impl Context {
     #[inline]
     pub fn vpn_tick(&self) -> impl Future<Output = Result<bool>> {
         self.vpn.tick(self)
+    }
+
+    /// Token de cancelación compartido. Se consulta en `wait_until`, sleeps y
+    /// `select!` para abortar esperas largas en cuanto el usuario cancela.
+    #[inline]
+    pub fn cancellation(&self) -> &CancellationToken {
+        &self.cancel
     }
 
     #[inline]

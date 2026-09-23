@@ -17,6 +17,10 @@ use crate::utils::*;
 const MAX_LISTING_ATTEMPTS: usize = 3;
 const MAX_DETAIL_ATTEMPTS: usize = 3;
 
+/// Tiempo maximo por peticion HTTP. El cliente compartido no lleva timeout
+/// global, asi que cada peticion lo fija aqui para no quedarse colgada.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
 const BASE_URL: &str = "https://empresite.eleconomista.es";
 
 // --- Cliente HTTP -----------------------------------------------------------
@@ -49,7 +53,7 @@ async fn fetch_detail(ctx: &Context, url: &str) -> Result<Fetched> {
 
 async fn get(ctx: &Context, url: &str) -> Result<Fetched> {
     ctx.verboser().debug(&format!("HTTP GET {url}"));
-    let resp = ctx.http().get(url).send().await?;
+    let resp = ctx.http().get(url).timeout(HTTP_TIMEOUT).send().await?;
     let status = resp.status();
     let final_url = resp.url().to_string();
     let html = resp.text().await?;
@@ -69,6 +73,7 @@ async fn post(ctx: &Context, url: &str) -> Result<Fetched> {
             reqwest::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded;charset=UTF-8",
         )
+        .timeout(HTTP_TIMEOUT)
         .send()
         .await?;
     let status = resp.status();
@@ -327,7 +332,7 @@ fn absolutize(href: &str) -> String {
     if href.starts_with("http://") || href.starts_with("https://") {
         href.to_string()
     } else if let Some(stripped) = href.strip_prefix("//") {
-        format!("https:{stripped}")
+        format!("https://{stripped}")
     } else if let Some(stripped) = href.strip_prefix('/') {
         format!("{BASE_URL}/{stripped}")
     } else {
@@ -363,6 +368,7 @@ async fn unblock<F: Future<Output = Result<Fetched>>>(
         || async { Ok(Some(then().await?)) },
         Duration::from_millis(500),
         Duration::from_secs(10),
+        ctx.cancellation(),
     )
     .await?)
 }
@@ -406,13 +412,12 @@ async fn scrape_detail(
                 "Ficha {} no cargó correctamente (intento {attempt}); reintentando",
                 link
             ));
-            tokio::time::sleep(random_delay(
-                config.empresite.delay_min,
-                config.empresite.delay_max,
-            ))
-            .await;
-            continue;
-        }
+            sleep_cancellable(
+                random_delay(config.empresite.delay_min, config.empresite.delay_max),
+                ctx.cancellation(),
+            )
+            .await?;
+            continue;        }
 
         let raw = extract_detail(&fetched.html);
         if raw.name.is_empty() {
@@ -597,7 +602,9 @@ async fn scrape_internal<P: Persistence>(
         if verboser.debug_enabled() {
             verboser.debug(&format!("Empresite HTTP listing: waiting {delay:?} before detail"));
         }
-        tokio::time::sleep(delay).await;
+        if sleep_cancellable(delay, ctx.cancellation()).await.is_err() {
+            break;
+        }
 
         match scrape_detail(ctx, &link, config, idx + 1).await? {
             DetailOutcome::Found(coincidence) => coincidences.push(coincidence),

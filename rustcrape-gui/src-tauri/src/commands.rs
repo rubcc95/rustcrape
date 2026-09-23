@@ -9,13 +9,14 @@ use rustcrape::verboser::NoVerboser;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
+use tokio_util::sync::CancellationToken;
 
 use crate::persistence::{ConfigStore, GlobalSettings, SavedConfig};
 use crate::verboser::TauriVerboser;
 
 pub struct AppState {
     pub store: Mutex<ConfigStore>,
-    pub cancel_flag: Arc<AtomicBool>,
+    pub cancel: Mutex<CancellationToken>,
     pub is_scraping: Arc<AtomicBool>,
     pub local_data_dir: PathBuf,
 }
@@ -24,7 +25,7 @@ impl AppState {
     pub fn new(store: ConfigStore, local_data_dir: PathBuf) -> Self {
         Self {
             store: Mutex::new(store),
-            cancel_flag: Arc::new(AtomicBool::new(false)),
+            cancel: Mutex::new(CancellationToken::new()),
             is_scraping: Arc::new(AtomicBool::new(false)),
             local_data_dir,
         }
@@ -223,10 +224,11 @@ pub async fn run_scraping(
         }
     }
  
-    state.cancel_flag.store(false, Ordering::SeqCst);
     state.is_scraping.store(true, Ordering::SeqCst);
-    let cancel_flag = state.cancel_flag.clone();    
+    let cancel = CancellationToken::new();
+    *state.cancel.lock().map_err(|e| e.to_string())? = cancel.clone();
     let app_handle = app.clone();
+    let is_scraping = state.is_scraping.clone();
 
     // Resolve SQLite path against app_local_data_dir
     let resolved_db = resolve_db_config(&config.db, &state.local_data_dir);
@@ -236,8 +238,9 @@ pub async fn run_scraping(
 
     let future = SpawnUnsafe(async move {
         app_handle.emit("scraping-started", ()).ok();
-        let verboser = TauriVerboser::new(app, cancel_flag, log_dir, &log_label);
+        let verboser = TauriVerboser::new(app, cancel, log_dir, &log_label);
         rustcrape::engine::run_dispatch(config, verboser).await;
+        is_scraping.store(false, Ordering::SeqCst);
         app_handle.emit("scraping-finished", ()).ok();
     });
 
@@ -269,7 +272,7 @@ pub async fn check_announcement() -> Option<Announcement> {
 
 #[tauri::command]
 pub fn cancel_scraping(state: State<'_, AppState>) -> Result<(), String> {
-    state.cancel_flag.store(true, Ordering::SeqCst);
+    state.cancel.lock().map_err(|e| e.to_string())?.cancel();
     Ok(())
 }
 

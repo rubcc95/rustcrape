@@ -1,5 +1,6 @@
 use crate::types::Coincidence;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 pub trait Verboser: Send + Sync + 'static {
     // Preparacion / base de datos
@@ -45,6 +46,14 @@ pub trait Verboser: Send + Sync + 'static {
 
     fn is_cancelled(&self) -> bool {
         false
+    }
+
+    /// Token de cancelación compartido. Las implementaciones que soportan
+    /// cancelación cooperativa lo exponen para que los helpers (`wait_until`,
+    /// sleeps, `select!`) puedan abortar esperas largas al instante. Por
+    /// defecto no hay token: la cancelación nunca se dispara.
+    fn cancellation(&self) -> Option<CancellationToken> {
+        None
     }
 }
 

@@ -14,6 +14,10 @@ use chromiumoxide::error::CdpError;
 use chromiumoxide::{Element, Page};
 use futures::future::{BoxFuture, select_ok};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+/// Tiempo maximo de espera a una navegacion CDP.
+const NAV_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn clean_maps_url(url: &str) -> String {
     let base = url.split('?').next().unwrap_or(url);
@@ -266,6 +270,10 @@ async fn scrape_single(
 ) -> Result<Vec<Coincidence>> {
     let _ = params;
     verboser.debug("Single mode: looking for a single-place panel");
+    if verboser.is_cancelled() {
+        verboser.debug("Single mode: cancelled by user");
+        return Ok(Vec::new());
+    }
     verboser.found_coincidences(Some(1));
     let delay = random_delay(config.delay_min, config.delay_max);
     verboser.debug(&format!("Single mode: waiting {delay:?} before extracting"));
@@ -380,6 +388,9 @@ async fn scrape_feed(
 ) -> Result<Vec<Coincidence>> {
     verboser.debug("Feed mode: starting listing walk");
     verboser.found_coincidences(None);
+    let cancel = verboser
+        .cancellation()
+        .unwrap_or_else(CancellationToken::new);
     let mut coincidences = Vec::new();
     let mut scrolls_without_new = 0u32;
     let mut fuera = 0u32;
@@ -472,6 +483,7 @@ async fn scrape_feed(
                 },
                 Duration::from_millis(100),
                 Duration::from_secs(5),
+                &cancel,
             )
             .await;
 
@@ -603,9 +615,14 @@ async fn scrape_internal(
     verboser.debug(&format!("Google Maps: search URL {url}"));
     let page = browser.new_page(&url, verboser).await?;
     verboser.debug("Google Maps: waiting for initial navigation");
-    page.wait_for_navigation().await?;
+    tokio::time::timeout(NAV_TIMEOUT, page.wait_for_navigation())
+        .await
+        .map_err(|_| anyhow::anyhow!("timeout esperando la navegacion"))??;
     verboser.debug("Google Maps: navigation completed, waiting for render (3s)");
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    let cancel = verboser
+        .cancellation()
+        .unwrap_or_else(CancellationToken::new);
+    sleep_cancellable(Duration::from_secs(3), &cancel).await?;
 
     if verboser.is_cancelled() {
         verboser.debug("Google Maps: cancelled before accepting cookies");
@@ -676,6 +693,7 @@ async fn scrape_internal(
         },
         Duration::from_millis(100),
         Duration::from_secs(10),
+        &cancel,
     )
     .await?;
 

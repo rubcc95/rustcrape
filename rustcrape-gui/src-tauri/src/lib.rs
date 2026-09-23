@@ -30,7 +30,9 @@ pub fn run() {
                 let state = window.state::<AppState>();
                 if state.is_scraping.load(Ordering::SeqCst) {
                     api.prevent_close();
-                    state.cancel_flag.store(true, Ordering::SeqCst);
+                    if let Ok(cancel) = state.cancel.lock() {
+                        cancel.cancel();
+                    }
                     let _ = window.hide();
                     let app = window.app_handle().clone();
                     let is_scraping = state.is_scraping.clone();

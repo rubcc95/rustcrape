@@ -7,6 +7,7 @@ use crate::google_maps::GoogleMapsScraper;
 use crate::scraper::Scraper;
 use crate::storage::Persistence;
 use crate::types::{Config, ExecutionMode};
+use crate::utils::sleep_cancellable;
 use crate::verboser::Verboser;
 
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(3600);
@@ -32,6 +33,10 @@ pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
     ));
 
     let persist = loop {
+        if verboser.is_cancelled() {
+            verboser.warn("Cancelado mientras se conectaba a la base de datos");
+            return;
+        }
         match PersistenceKind::create(&config.db, &mut config.gmaps, &verboser).await {
             Ok(p) => {
                 verboser.debug("Engine: database ready");
@@ -130,7 +135,9 @@ async fn run_target<S: Scraper>(
                     rate_limit.get()
                 ));
                 ctx.verboser().rate_limit_wait(wait);
-                tokio::time::sleep(wait).await;
+                if sleep_cancellable(wait, ctx.cancellation()).await.is_err() {
+                    break;
+                }
             }
             timestamps.push(Instant::now());
         }
@@ -150,7 +157,7 @@ async fn run_target<S: Scraper>(
             Ok(claimed) => claimed,
             Err(err) => {
                 ctx.verboser().error(&format!("Error claiming task: {err}"));
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                let _ = sleep_cancellable(Duration::from_secs(1), ctx.cancellation()).await;
                 continue;
             }
         };
@@ -268,7 +275,9 @@ async fn run_target<S: Scraper>(
                     .checked_sub(now.duration_since(oldest))
                     .unwrap_or_default();
                 ctx.verboser().rate_limit_wait(wait);
-                tokio::time::sleep(wait).await;
+                if sleep_cancellable(wait, ctx.cancellation()).await.is_err() {
+                    break;
+                }
             }
             timestamps.push(Instant::now());
         }
@@ -283,7 +292,7 @@ async fn run_target<S: Scraper>(
             Ok(claimed) => claimed,
             Err(err) => {
                 ctx.verboser().error(&format!("Error claiming task: {err}"));
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                let _ = sleep_cancellable(Duration::from_secs(1), ctx.cancellation()).await;
                 continue;
             }
         };

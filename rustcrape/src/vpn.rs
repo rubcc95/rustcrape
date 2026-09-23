@@ -5,13 +5,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 use crate::context::Context;
-use crate::utils::{WaitUntilTimeoutError, wait_until};
+use crate::utils::{Cancelled, WaitUntilTimeoutError, wait_until};
 use crate::verboser::Verboser;
 
 /// Servicio que devuelve la IP publica de salida.
 const IP_PROBE_URL: &str = "https://api.ipify.org";
+
+/// Tiempo maximo que se espera a que el CLI de NordVPN termine.
+const VPN_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Pais al que se conecta la VPN en cada rotacion.
 const VPN_COUNTRIES: &[&str] = &[
@@ -64,6 +68,7 @@ async fn run_vpn_command<I, S>(
     path: &Path,
     ip: &str,
     v: &dyn Verboser,
+    cancel: &CancellationToken,
 ) -> Result<Option<String>>
 where
     I: IntoIterator<Item = S>,
@@ -77,11 +82,22 @@ where
         .collect();
     v.debug(&format!("VPN: running {} {:?}", path.display(), args));
 
-    Command::new(path)
+    let command = Command::new(path)
         .args(&args)
         .kill_on_drop(true)
-        .status()
-        .await?;
+        .status();
+    tokio::select! {
+        _ = cancel.cancelled() => return Err(Cancelled.into()),
+        result = tokio::time::timeout(VPN_COMMAND_TIMEOUT, command) => match result {
+            Ok(status) => {
+                status?;
+            }
+            Err(_) => {
+                v.warn("VPN: el comando de NordVPN no respondio a tiempo; reintentando");
+                return Ok(None);
+            }
+        },
+    }
 
     v.debug("VPN: command finished, waiting for the public IP to change");
     let output = wait_until(
@@ -102,6 +118,7 @@ where
         },
         Duration::from_millis(500),
         Duration::from_secs(60),
+        cancel,
     )
     .await;
 
@@ -115,25 +132,28 @@ where
 }
 
 async fn rotate_vpn(ctx: &Context) -> Result<()> {
-    let v = ctx.verboser();    
+    let v = ctx.verboser();
+    let cancel = ctx.cancellation();
     let Some(path) = ctx.vpn_path() else {
         v.vpn_not_available();
         return Ok(());
     };
 
-    
     let http = ctx.http();
 
-    let mut prev = public_ip(http).await?;
-    
+    let mut prev = tokio::select! {
+        _ = cancel.cancelled() => return Err(Cancelled.into()),
+        ip = public_ip(http) => ip?,
+    };
+
     loop {
-        if v.is_cancelled() {
-            return Ok(());
+        if cancel.is_cancelled() {
+            return Err(Cancelled.into());
         }
-        
+
         v.vpn_rotating();
         v.debug(&format!("VPN: nordvpn binary at {}", path.display()));
-        let success = run_vpn_command(["-d"], http, path, &prev, v).await?;
+        let success = run_vpn_command(["-d"], http, path, &prev, v, cancel).await?;
         v.debug(match success {
             Some(ip) => {
                 prev = ip;
@@ -144,7 +164,9 @@ async fn rotate_vpn(ctx: &Context) -> Result<()> {
 
         let country = random_country();
         v.debug(&format!("VPN: connecting to country '{country}'"));
-        if let Some(_) = run_vpn_command(["-c", "-g", country], http, path, &prev, v).await? {
+        if let Some(_) =
+            run_vpn_command(["-c", "-g", country], http, path, &prev, v, cancel).await?
+        {
             break;
         }
 

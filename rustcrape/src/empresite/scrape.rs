@@ -17,6 +17,10 @@ use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, Dispat
 use std::future::Future;
 use std::time::Duration;
 
+/// Tiempo maximo de espera a una navegacion CDP, para no colgarse si la pagina
+/// nunca termina de cargar.
+const NAV_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Acepta el banner de consentimiento de Didomi si aparece.
 async fn accept_cookies(page: &Page, verboser: &dyn Verboser) -> Result<()> {
     verboser.debug("Empresite cookies: looking for accept button");
@@ -349,7 +353,12 @@ where
         *page = browser.new_page(url, verboser).await?;
 
         loop {
-            page.wait_for_navigation_response().await?;
+            if ctx.cancellation().is_cancelled() {
+                return Err(crate::utils::Cancelled.into());
+            }
+            tokio::time::timeout(NAV_TIMEOUT, page.wait_for_navigation_response())
+                .await
+                .map_err(|_| anyhow::anyhow!("timeout esperando la navegacion"))??;
             verboser.debug("Captcha Plan B: checking whether the page is still blocked");
             let blocked = wait_until(
                 || async {
@@ -363,6 +372,7 @@ where
                 },
                 Duration::from_millis(300),
                 Duration::from_secs(10),
+                ctx.cancellation(),
             )
             .await;
 
@@ -651,6 +661,7 @@ async fn scrape_detail(
             },
             Duration::from_millis(200),
             Duration::from_secs(7),
+            ctx.cancellation(),
         ) 
         .await;
 
@@ -663,6 +674,9 @@ async fn scrape_detail(
                     is_detail_loaded(&page).await
                 })
                 .await?;
+                if ctx.cancellation().is_cancelled() {
+                    return Err(crate::utils::Cancelled.into());
+                }
                 verboser.debug(&format!("Empresite detail #{count}: unblocked"));
             }
             Ok(false) => {
@@ -682,11 +696,11 @@ async fn scrape_detail(
                     "Ficha {} no cargo correctamente (intento {}); reabriendo",
                     link, attempt
                 ));
-                tokio::time::sleep(random_delay(
-                    config.empresite.delay_min,
-                    config.empresite.delay_max,
-                ))
-                .await;
+                sleep_cancellable(
+                    random_delay(config.empresite.delay_min, config.empresite.delay_max),
+                    ctx.cancellation(),
+                )
+                .await?;
                 continue;
             }
         }
@@ -808,7 +822,9 @@ pub async fn scrape_internal<P: Persistence>(
     let mut page = browser.new_page(&url, verboser).await?;
 
     verboser.debug("Empresite listing: waiting for initial navigation");
-    page.wait_for_navigation().await?;
+    tokio::time::timeout(NAV_TIMEOUT, page.wait_for_navigation())
+        .await
+        .map_err(|_| anyhow::anyhow!("timeout esperando la navegacion"))??;
 
     verboser.accepting_cookies();
     let _ = accept_cookies(&page, verboser).await;
@@ -826,6 +842,9 @@ pub async fn scrape_internal<P: Persistence>(
             Ok(true)
         })
         .await?;
+        if ctx.cancellation().is_cancelled() {
+            return Err(crate::utils::Cancelled.into());
+        }
     }
 
     // Si Empresite renombro la actividad, la redireccion pierde el PgNum y
@@ -838,7 +857,9 @@ pub async fn scrape_internal<P: Persistence>(
             params.page
         ));
         page.goto(url.clone()).await?;
-        page.wait_for_navigation().await?;
+        tokio::time::timeout(NAV_TIMEOUT, page.wait_for_navigation())
+            .await
+            .map_err(|_| anyhow::anyhow!("timeout esperando la navegacion"))??;
         let _ = accept_cookies(&page, verboser).await;
     }
 
@@ -864,7 +885,9 @@ pub async fn scrape_internal<P: Persistence>(
         if verboser.debug_enabled() {
             verboser.debug(&format!("Empresite listing: waiting {delay:?} before detail"));
         }
-        tokio::time::sleep(delay).await;
+        if sleep_cancellable(delay, ctx.cancellation()).await.is_err() {
+            break;
+        }
 
         if let DetailOutcome::Found(coincidence) =
             scrape_detail(browser, &link, &config, ctx, idx + 1).await?

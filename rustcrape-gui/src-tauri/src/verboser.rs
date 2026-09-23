@@ -1,14 +1,13 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rustcrape::types::Coincidence;
 use serde::Serialize;
 use tauri::Emitter;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Serialize)]
 pub struct VerboserPayload {
@@ -22,21 +21,21 @@ pub struct VerboserPayload {
 
 pub struct TauriVerboser {
     app_handle: tauri::AppHandle,
-    cancel_flag: Arc<AtomicBool>,
+    cancel: CancellationToken,
     log_file: Option<Mutex<File>>,
 }
 
 impl TauriVerboser {
     pub fn new(
         app_handle: tauri::AppHandle,
-        cancel_flag: Arc<AtomicBool>,
+        cancel: CancellationToken,
         log_dir: PathBuf,
         db_label: &str,
     ) -> Self {
         let log_file = Self::open_log(&log_dir, db_label);
         Self {
             app_handle,
-            cancel_flag,
+            cancel,
             log_file,
         }
     }
@@ -261,7 +260,11 @@ impl rustcrape::verboser::Verboser for TauriVerboser {
     }
 
     fn is_cancelled(&self) -> bool {
-        self.cancel_flag.load(Ordering::SeqCst)
+        self.cancel.is_cancelled()
+    }
+
+    fn cancellation(&self) -> Option<CancellationToken> {
+        Some(self.cancel.clone())
     }
 
     fn warn(&self, msg: &str) {

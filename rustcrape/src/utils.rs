@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 /// Retardo pseudo-aleatorio entre peticiones, dentro del rango configurado.
 pub fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
@@ -21,6 +22,22 @@ pub fn random_delay(min_ms: u64, max_ms: u64) -> Duration {
 #[derive(Debug, thiserror::Error)]
 #[error("wait_until reached timeout")]
 pub struct WaitUntilTimeoutError;
+
+/// Señal de cancelación cooperativa: distingue el aborto por el usuario de un
+/// timeout normal, para que los llamadores no lo confundan con "no hubo suerte
+/// pero seguimos".
+#[derive(Debug, thiserror::Error)]
+#[error("operación cancelada por el usuario")]
+pub struct Cancelled;
+
+/// Duerme `duration` salvo que el token se cancele antes, en cuyo caso aborta
+/// de inmediato devolviendo `Cancelled`.
+pub async fn sleep_cancellable(duration: Duration, cancel: &CancellationToken) -> Result<()> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(Cancelled.into()),
+        _ = tokio::time::sleep(duration) => Ok(()),
+    }
+}
 
 pub trait WaitUntilDuration {
     fn duration(&self) -> Option<Duration>;
@@ -45,11 +62,13 @@ impl WaitUntilDuration for () {
     }
 }
 
-/// Espera hasta que `f` devuelva `Some`, sondeando cada `interval` hasta `timeout`.
+/// Espera hasta que `f` devuelva `Some`, sondeando cada `interval` hasta
+/// `timeout`. Aborta de inmediato con `Cancelled` si el token se cancela.
 pub async fn wait_until<F, Fut, T>(
     mut f: F,
     interval: impl WaitUntilDuration,
     timeout: impl WaitUntilDuration,
+    cancel: &CancellationToken,
 ) -> Result<T>
 where
     F: FnMut() -> Fut,
@@ -58,6 +77,9 @@ where
     let start = std::time::Instant::now();
 
     loop {
+        if cancel.is_cancelled() {
+            return Err(Cancelled.into());
+        }
         if let Some(value) = f().await? {
             return Ok(value);
         }
