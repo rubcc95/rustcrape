@@ -183,7 +183,6 @@ async fn run_target<S: Scraper>(
                 "Engine[{name}]: scrape of task id={task_id} took {:?}",
                 started.elapsed()
             ));
-        ctx.verboser().closing_browser();
 
         match result {
             Ok(result) => {

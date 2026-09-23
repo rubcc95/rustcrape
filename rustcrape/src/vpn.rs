@@ -62,14 +62,14 @@ async fn run_vpn_command<I, S>(
     args: I,
     http: &reqwest::Client,
     path: &Path,
+    ip: &str,
     v: &dyn Verboser,
-) -> Result<bool>
+) -> Result<Option<String>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let prev = public_ip(http).await?;
-    v.debug(&format!("VPN: current public IP before command: {prev}"));
+    v.debug(&format!("VPN: current public IP before command: {ip}"));
 
     let args: Vec<std::ffi::OsString> = args
         .into_iter()
@@ -98,46 +98,59 @@ where
                     }
                 }
             };
-            Ok(if curr == prev { None } else { Some(curr) })
+            Ok(if &curr == &ip { None } else { Some(curr) })
         },
         Duration::from_millis(500),
         Duration::from_secs(60),
     )
     .await;
-    if let Err(err) = output {
-        if err.downcast::<WaitUntilTimeoutError>().is_ok() {
-            return Ok(false);
-        }
-    }
 
-    Ok(true)
+    match output {
+        Ok(ip) => Ok(Some(ip)),
+        Err(err) => match err.downcast::<WaitUntilTimeoutError>() {
+            Ok(_) => Ok(None),
+            Err(err) => Err(err),
+        },
+    }
 }
 
 async fn rotate_vpn(ctx: &Context) -> Result<()> {
+    let v = ctx.verboser();    
     let Some(path) = ctx.vpn_path() else {
-        ctx.verboser().vpn_not_available();
+        v.vpn_not_available();
         return Ok(());
     };
 
-    let v = ctx.verboser();
+    
+    let http = ctx.http();
+
+    let mut prev = public_ip(http).await?;
+    
     loop {
+        if v.is_cancelled() {
+            return Ok(());
+        }
+        
         v.vpn_rotating();
-        let http = ctx.http();
         v.debug(&format!("VPN: nordvpn binary at {}", path.display()));
-        let success = run_vpn_command(["-d"], http, path, v).await?;
+        let success = run_vpn_command(["-d"], http, path, &prev, v).await?;
         v.debug(match success {
-            true => "VPN disconnected successfully",
-            false => "VPN disconnect command finished but public IP did not change",
+            Some(ip) => {
+                prev = ip;
+                "VPN disconnected successfully"
+            }
+            None => "VPN disconnect command finished but public IP did not change",
         });
+
         let country = random_country();
         v.debug(&format!("VPN: connecting to country '{country}'"));
-        if run_vpn_command(["-c", "-g", country], http, path, v).await? {
+        if let Some(_) = run_vpn_command(["-c", "-g", country], http, path, &prev, v).await? {
             break;
         }
-        v.debug("VPN: connect command finished but public IP did not change");
-        v.debug("VPN connected successfully");
-    }
 
+        v.debug("VPN: connect command finished but public IP did not change");
+    }
+    v.debug("VPN connected successfully");
     Ok(())
 }
 
