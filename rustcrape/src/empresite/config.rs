@@ -1,13 +1,22 @@
 use serde::Serialize;
 
-use crate::types::Province;
+use crate::types::EmpresiteLocation;
 
-/// Segmento de path con la provincia (`provincia/{SLUG}/`) o cadena vacia si
-/// no hay filtro por provincia. Empresite espera la provincia entre la
-/// actividad y el `PgNum`: `/Actividad/{actividad}/provincia/{PROV}/PgNum-N/`.
-pub fn province_path(province: Option<Province>) -> String {
-    match province {
-        Some(province) => format!("provincia/{}/", province.query_value()),
+/// Segmento de path con la ubicacion (`provincia/{PROV}/` o
+/// `localidad/{PUEBLO-PROV}/`) o cadena vacia si no hay filtro. Empresite
+/// espera la ubicacion entre la actividad y el `PgNum`:
+/// `/Actividad/{actividad}/provincia/{PROV}/PgNum-N/`.
+pub fn location_path(location: Option<&EmpresiteLocation>) -> String {
+    match location {
+        Some(EmpresiteLocation::Province(province)) => {
+            format!("provincia/{}/", province.query_value())
+        }
+        Some(EmpresiteLocation::Locality { name, province }) => {
+            format!(
+                "localidad/{}/",
+                EmpresiteLocation::locality_slug(name, *province)
+            )
+        }
         None => String::new(),
     }
 }
@@ -81,19 +90,19 @@ pub enum ActivityAction {
 /// canonico.
 ///
 /// Cuando Empresite renombra la actividad la redireccion tambien descarta el
-/// `PgNum` y la provincia, devolviendo siempre la pagina 1 sin filtro. Por eso
+/// `PgNum` y la ubicacion, devolviendo siempre la pagina 1 sin filtro. Por eso
 /// hay que recargar tanto si no estabamos en la primera pagina como si habia
-/// una provincia configurada, incluso en la pagina 1.
+/// una ubicacion configurada, incluso en la pagina 1.
 pub fn activity_action(
     requested: &str,
     final_url: &str,
     page: u32,
-    has_province: bool,
+    has_location: bool,
 ) -> ActivityAction {
     match activity_from_url(final_url) {
         Some(canonical) if canonical != requested => ActivityAction::Renamed {
             canonical,
-            reload: page > 1 || has_province,
+            reload: page > 1 || has_location,
         },
         _ => ActivityAction::Keep,
     }
@@ -259,16 +268,63 @@ mod tests {
     }
 
     #[test]
-    fn test_province_path() {
-        use crate::types::Province;
+    fn test_province_location_path() {
+        use crate::types::{EmpresiteLocation, Province};
 
-        assert_eq!(province_path(None), "");
-        assert_eq!(province_path(Some(Province::Madrid)), "provincia/MADRID/");
+        assert_eq!(location_path(None), "");
         assert_eq!(
-            province_path(Some(Province::SantaCruzDeTenerife)),
+            location_path(Some(&EmpresiteLocation::Province(Province::Madrid))),
+            "provincia/MADRID/"
+        );
+        assert_eq!(
+            location_path(Some(&EmpresiteLocation::Province(
+                Province::SantaCruzDeTenerife
+            ))),
             "provincia/SANTA-CRUZ-TENERIFE/"
         );
-        assert_eq!(province_path(Some(Province::Rioja)), "provincia/RIOJA/");
-        assert_eq!(province_path(Some(Province::Palmas)), "provincia/PALMAS/");
+        assert_eq!(
+            location_path(Some(&EmpresiteLocation::Province(Province::Rioja))),
+            "provincia/RIOJA/"
+        );
+        assert_eq!(
+            location_path(Some(&EmpresiteLocation::Province(Province::Palmas))),
+            "provincia/PALMAS/"
+        );
+    }
+
+    #[test]
+    fn test_locality_path_con_provincia() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let location = EmpresiteLocation::Locality {
+            name: "Oviedo".to_string(),
+            province: Province::Asturias,
+        };
+        assert_eq!(location_path(Some(&location)), "localidad/OVIEDO-ASTURIAS/");
+    }
+
+    #[test]
+    fn test_locality_path_quita_articulos_y_adverbios() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let location = EmpresiteLocation::Locality {
+            name: "San Mateo de Gállego".to_string(),
+            province: Province::Zaragoza,
+        };
+        assert_eq!(
+            location_path(Some(&location)),
+            "localidad/SAN-MATEO-GALLEGO-ZARAGOZA/"
+        );
+    }
+
+    #[test]
+    fn test_locality_path_localidad_igual_a_provincia() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let location = EmpresiteLocation::Locality {
+            name: "Barcelona".to_string(),
+            province: Province::Barcelona,
+        };
+        assert_eq!(location_path(Some(&location)), "localidad/BARCELONA/");
     }
 }

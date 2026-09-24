@@ -4,7 +4,7 @@ use serde::Deserialize;
 use crate::browser::Browser;
 use crate::context::Context;
 use crate::empresite::config::{
-    activity_action, activity_slug, province_path, ActivityAction, EmpresiteParams,
+    activity_action, activity_slug, location_path, ActivityAction, EmpresiteParams,
 };
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
@@ -584,7 +584,7 @@ enum DetailOutcome {
 
 /// Comprueba la URL final de la pagina y, si Empresite renombro la actividad,
 /// fija el nombre canonico. Devuelve `true` si hay que recargar la pagina
-/// porque la redireccion perdio el `PgNum` o la provincia.
+/// porque la redireccion perdio el `PgNum` o la ubicacion.
 ///
 /// Debe llamarse con la pagina ya cargada (no bloqueada): la pantalla de
 /// captcha no redirige y no revela el activity canonico.
@@ -593,14 +593,14 @@ async fn resolve_activity<P: Persistence>(
     requested: &str,
     activity: &mut String,
     page_num: u32,
-    has_province: bool,
+    has_location: bool,
     persist: &P,
     verboser: &dyn Verboser,
 ) -> Result<bool> {
     let Some(final_url) = page.url().await? else {
         return Ok(false);
     };
-    match activity_action(activity, &final_url, page_num, has_province) {
+    match activity_action(activity, &final_url, page_num, has_location) {
         ActivityAction::Keep => Ok(false),
         ActivityAction::Renamed { canonical, reload } => {
             verboser.warn(&format!(
@@ -774,12 +774,12 @@ async fn scrape_detail(
 /// configurados. Si hay al menos un filtro se anade el flag `testfiltros=1`,
 /// que activa el modo filtrado del endpoint.
 fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
-    let province = province_path(cfg.province);
+    let location = location_path(cfg.location_filter.as_ref());
     let base = if page <= 1 {
-        format!("https://empresite.eleconomista.es/Actividad/{activity}/{province}")
+        format!("https://empresite.eleconomista.es/Actividad/{activity}/{location}")
     } else {
         format!(
-            "https://empresite.eleconomista.es/Actividad/{activity}/{province}PgNum-{page}/"
+            "https://empresite.eleconomista.es/Actividad/{activity}/{location}PgNum-{page}/"
         )
     };
 
@@ -859,7 +859,7 @@ pub async fn scrape_internal<P: Persistence>(
         &requested,
         &mut activity,
         params.page,
-        config.empresite.province.is_some(),
+        config.empresite.location_filter.is_some(),
         persist,
         verboser,
     )
@@ -1018,10 +1018,10 @@ mod tests {
 
     #[test]
     fn test_listing_url_with_province() {
-        use crate::types::Province;
+        use crate::types::{EmpresiteLocation, Province};
 
         let cfg = EmpresiteConfig {
-            province: Some(Province::Madrid),
+            location_filter: Some(EmpresiteLocation::Province(Province::Madrid)),
             ..Default::default()
         };
         assert_eq!(
@@ -1031,6 +1031,27 @@ mod tests {
         assert_eq!(
             listing_url("BARCOS-DE-VELA", 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/"
+        );
+    }
+
+    #[test]
+    fn test_listing_url_with_locality() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let cfg = EmpresiteConfig {
+            location_filter: Some(EmpresiteLocation::Locality {
+                name: "Oviedo".to_string(),
+                province: Province::Asturias,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/OVIEDO-ASTURIAS/"
+        );
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/OVIEDO-ASTURIAS/PgNum-2/"
         );
     }
 

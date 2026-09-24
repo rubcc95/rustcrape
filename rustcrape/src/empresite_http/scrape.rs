@@ -5,7 +5,7 @@ use scraper::{Html, Selector};
 
 use crate::context::Context;
 use crate::empresite::config::{
-    activity_action, activity_slug, province_path, ActivityAction, EmpresiteParams,
+    activity_action, activity_slug, location_path, ActivityAction, EmpresiteParams,
 };
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
@@ -313,11 +313,11 @@ fn clean_empresite_url(url: &str) -> String {
 
 /// Genera la URL del listado para una página concreta anexando los filtros.
 fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
-    let province = province_path(cfg.province);
+    let location = location_path(cfg.location_filter.as_ref());
     let base = if page <= 1 {
-        format!("{BASE_URL}/Actividad/{activity}/{province}")
+        format!("{BASE_URL}/Actividad/{activity}/{location}")
     } else {
-        format!("{BASE_URL}/Actividad/{activity}/{province}PgNum-{page}/")
+        format!("{BASE_URL}/Actividad/{activity}/{location}PgNum-{page}/")
     };
 
     let filters = cfg.filter_query();
@@ -542,7 +542,7 @@ async fn scrape_internal<P: Persistence>(
             &activity,
             &fetched.final_url,
             params.page,
-            config.empresite.province.is_some(),
+            config.empresite.location_filter.is_some(),
         ) {
             ActivityAction::Keep => {}
             ActivityAction::Renamed { canonical, reload } => {
@@ -721,10 +721,10 @@ mod tests {
 
     #[test]
     fn test_listing_url_con_provincia() {
-        use crate::types::Province;
+        use crate::types::{EmpresiteLocation, Province};
 
         let cfg = EmpresiteConfig {
-            province: Some(Province::Madrid),
+            location_filter: Some(EmpresiteLocation::Province(Province::Madrid)),
             ..Default::default()
         };
         assert_eq!(
@@ -734,6 +734,27 @@ mod tests {
         assert_eq!(
             listing_url("BARCOS-DE-VELA", 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/"
+        );
+    }
+
+    #[test]
+    fn test_listing_url_con_localidad() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let cfg = EmpresiteConfig {
+            location_filter: Some(EmpresiteLocation::Locality {
+                name: "San Mateo de Gállego".to_string(),
+                province: Province::Zaragoza,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/SAN-MATEO-GALLEGO-ZARAGOZA/"
+        );
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/SAN-MATEO-GALLEGO-ZARAGOZA/PgNum-2/"
         );
     }
 

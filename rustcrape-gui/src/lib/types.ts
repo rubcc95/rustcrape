@@ -192,6 +192,11 @@ export const PROVINCES: { value: Province; label: string }[] = [
   { value: "zaragoza", label: "Zaragoza" },
 ];
 
+/** Filtro geográfico de Empresite: provincia o localidad (excluyentes). */
+export type EmpresiteLocation =
+  | { province: Province }
+  | { locality: { name: string; province: Province } };
+
 export interface EmployeeRange {
   min: number;
   max: number;
@@ -215,8 +220,11 @@ export interface EmpresiteConfig {
   employees: EmployeeRange | null;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
-  province: Province | null;
+  location_filter: EmpresiteLocation | null;
 }
+
+/** Modo del filtro geográfico en el estado del formulario. */
+export type LocationMode = "none" | "province" | "locality";
 
 /** Filtros de Empresite en el estado del formulario (rango con bandera). */
 export interface EmpresiteFilters {
@@ -231,6 +239,8 @@ export interface EmpresiteFilters {
   employees_max: number;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
+  location_mode: LocationMode;
+  locality_name: string;
   province: Province | null;
 }
 

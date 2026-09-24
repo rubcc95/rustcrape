@@ -7,6 +7,7 @@
     CompanySize,
     IncorporationDate,
     LegalForm,
+    LocationMode,
     Province,
   } from "../lib/types";
   import { PROVINCES } from "../lib/types";
@@ -35,6 +36,19 @@
     const value = (e.currentTarget as HTMLSelectElement).value;
     projectStore.projectDraft.empresite_filters.province =
       value === "" ? null : (value as Province);
+  }
+
+  function onLocationModeChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement)
+      .value as LocationMode;
+    const filters = projectStore.projectDraft.empresite_filters;
+    filters.location_mode = value;
+    if (value === "none") {
+      filters.province = null;
+      filters.locality_name = "";
+    } else if (value === "province") {
+      filters.locality_name = "";
+    }
   }
 </script>
 
@@ -361,18 +375,56 @@
         </div>
 
         <div class="field">
-          <label for="emp-province">Provincia</label>
+          <label for="emp-location-mode">Ubicación</label>
           <select
-            id="emp-province"
-            value={projectStore.projectDraft.empresite_filters.province ?? ""}
-            onchange={onProvinceChange}
+            id="emp-location-mode"
+            value={projectStore.projectDraft.empresite_filters.location_mode}
+            onchange={onLocationModeChange}
           >
-            <option value="">Todas</option>
-            {#each PROVINCES as province (province.value)}
-              <option value={province.value}>{province.label}</option>
-            {/each}
+            <option value="none">Sin filtro</option>
+            <option value="province">Provincia</option>
+            <option value="locality">Localidad</option>
           </select>
         </div>
+
+        {#if projectStore.projectDraft.empresite_filters.location_mode === "province"}
+          <div class="field">
+            <label for="emp-province">Provincia</label>
+            <select
+              id="emp-province"
+              value={projectStore.projectDraft.empresite_filters.province ?? ""}
+              onchange={onProvinceChange}
+            >
+              <option value="">Todas</option>
+              {#each PROVINCES as province (province.value)}
+                <option value={province.value}>{province.label}</option>
+              {/each}
+            </select>
+          </div>
+        {:else if projectStore.projectDraft.empresite_filters.location_mode === "locality"}
+          <div class="field">
+            <label for="emp-locality-province">Provincia</label>
+            <select
+              id="emp-locality-province"
+              value={projectStore.projectDraft.empresite_filters.province ?? ""}
+              onchange={onProvinceChange}
+            >
+              <option value="">Selecciona provincia</option>
+              {#each PROVINCES as province (province.value)}
+                <option value={province.value}>{province.label}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="field">
+            <label for="emp-locality-name">Localidad</label>
+            <input
+              type="text"
+              id="emp-locality-name"
+              bind:value={projectStore.projectDraft.empresite_filters.locality_name}
+              placeholder="San Mateo de Gállego"
+            />
+          </div>
+        {/if}
 
         <Checkbox
           bind:value={

@@ -5,6 +5,9 @@ import type {
   Config,
   DbConfig,
   EmpresiteFilters,
+  EmpresiteLocation,
+  LocationMode,
+  Province,
   IterationStats,
 } from "../types";
 import {
@@ -53,8 +56,35 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
     employees_max: 100,
     incorporation_date: null,
     legal_form: null,
+    location_mode: "none",
+    locality_name: "",
     province: null,
   };
+}
+
+/** Compone el filtro geográfico a partir del modo y los campos del formulario.
+ *  Provincia y localidad son excluyentes: el modo decide cuál viaja. */
+function buildLocationFilter(ef: EmpresiteFilters): EmpresiteLocation | null {
+  if (ef.location_mode === "locality") {
+    if (!ef.province || ef.locality_name.trim() === "") return null;
+    return { locality: { name: ef.locality_name.trim(), province: ef.province } };
+  }
+  if (ef.location_mode === "province" && ef.province) {
+    return { province: ef.province };
+  }
+  return null;
+}
+
+/** Modo del formulario a partir del filtro geográfico guardado. */
+function locationModeFrom(loc: EmpresiteLocation | null): LocationMode {
+  if (!loc) return "none";
+  return "locality" in loc ? "locality" : "province";
+}
+
+/** Provincia asociada al filtro geográfico guardado (la use el modo que use). */
+function provinceFrom(loc: EmpresiteLocation | null): Province | null {
+  if (!loc) return null;
+  return "locality" in loc ? loc.locality.province : loc.province;
 }
 
 function emptyStats(): IterationStats {
@@ -149,7 +179,7 @@ class ProjectStore {
           : null,
         incorporation_date: ef.incorporation_date,
         legal_form: ef.legal_form,
-        province: ef.province,
+        location_filter: buildLocationFilter(ef),
       },
       execution_mode: this.executionConfig.execution_mode,
       db,
@@ -206,7 +236,12 @@ class ProjectStore {
         employees_max: c.empresite.employees?.max ?? 100,
         incorporation_date: c.empresite.incorporation_date ?? null,
         legal_form: c.empresite.legal_form ?? null,
-        province: c.empresite.province ?? null,
+        location_mode: locationModeFrom(c.empresite.location_filter),
+        locality_name:
+          c.empresite.location_filter && "locality" in c.empresite.location_filter
+            ? c.empresite.location_filter.locality.name
+            : "",
+        province: provinceFrom(c.empresite.location_filter),
       },
       use_mysql: useMysql,
       db_host: useMysql ? db.host : "localhost",

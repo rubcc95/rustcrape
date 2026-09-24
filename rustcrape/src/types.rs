@@ -277,9 +277,52 @@ pub struct EmpresiteConfig {
     pub incorporation_date: Option<IncorporationDate>,
     /// Forma juridica.
     pub legal_form: Option<LegalForm>,
-    /// Provincia por la que filtrar el listado (opcional). Viaja como segmento
-    /// de path en la URL: `/provincia/{SLUG}/`.
-    pub province: Option<Province>,
+    /// Filtro geografico (opcional): provincia o localidad, mutuamente
+    /// excluyentes. Viaja como segmento de path en la URL:
+    /// `/provincia/{PROV}/` o `/localidad/{PUEBLO-PROV}/`.
+    pub location_filter: Option<EmpresiteLocation>,
+}
+
+/// Filtro de ubicacion del listado de Empresite. Provincia y localidad son
+/// excluyentes: buscar por una descarta la otra.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmpresiteLocation {
+    /// Filtra por toda la provincia.
+    Province(Province),
+    /// Filtra por una localidad concreta dentro de una provincia. Empresite
+    /// espera el slug `PUEBLO-PROVINCIA`, salvo cuando la localidad se llama
+    /// igual que su provincia, en cuyo caso va sola (`BARCELONA`).
+    Locality { name: String, province: Province },
+}
+
+impl EmpresiteLocation {
+    /// Slug que Empresite espera para el segmento de localidad:
+    /// `PUEBLO-PROVINCIA` o solo `PUEBLO` si coincide con la provincia.
+    pub fn locality_slug(name: &str, province: Province) -> String {
+        let name_slug = locality_name_slug(name);
+        let province_slug = province.query_value();
+        if name_slug == province_slug {
+            name_slug
+        } else {
+            format!("{name_slug}-{province_slug}")
+        }
+    }
+}
+
+/// Normaliza el nombre de una localidad a mayusculas, sin acentos, con los
+/// espacios convertidos en guiones y descartando articulos y adverbios
+/// (`San Mateo de Gállego` -> `SAN-MATEO-GALLEGO`). Se reutiliza la misma
+/// normalizacion que para el activity, anadiendo el filtrado de palabras vacias.
+fn locality_name_slug(name: &str) -> String {
+    const STOP_WORDS: &[&str] = &[
+        "DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "E", "O", "U", "A", "EN", "AL",
+    ];
+    name.split_whitespace()
+        .map(crate::empresite::config::activity_slug)
+        .filter(|word| !word.is_empty() && !STOP_WORDS.contains(&word.as_str()))
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 impl EmpresiteConfig {
