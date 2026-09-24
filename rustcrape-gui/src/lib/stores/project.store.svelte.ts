@@ -53,6 +53,7 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
     employees_max: 100,
     incorporation_date: null,
     legal_form: null,
+    province: null,
   };
 }
 
@@ -148,6 +149,7 @@ class ProjectStore {
           : null,
         incorporation_date: ef.incorporation_date,
         legal_form: ef.legal_form,
+        province: ef.province,
       },
       execution_mode: this.executionConfig.execution_mode,
       db,
@@ -204,6 +206,7 @@ class ProjectStore {
         employees_max: c.empresite.employees?.max ?? 100,
         incorporation_date: c.empresite.incorporation_date ?? null,
         legal_form: c.empresite.legal_form ?? null,
+        province: c.empresite.province ?? null,
       },
       use_mysql: useMysql,
       db_host: useMysql ? db.host : "localhost",

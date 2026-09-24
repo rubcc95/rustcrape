@@ -277,6 +277,9 @@ pub struct EmpresiteConfig {
     pub incorporation_date: Option<IncorporationDate>,
     /// Forma juridica.
     pub legal_form: Option<LegalForm>,
+    /// Provincia por la que filtrar el listado (opcional). Viaja como segmento
+    /// de path en la URL: `/provincia/{SLUG}/`.
+    pub province: Option<Province>,
 }
 
 impl EmpresiteConfig {
@@ -410,6 +413,126 @@ impl EmployeeRange {
             self.min.to_string()
         } else {
             format!("{}-{}", self.min, self.max)
+        }
+    }
+}
+
+/// Provincia espanola por la que filtrar el listado de Empresite. El slug que
+/// espera la web no siempre coincide con el nombre oficial (p. ej. `La Rioja`
+/// es `RIOJA` o `A Coruna` es `CORUNA`), por eso cada variante lo fija.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Province {
+    Alava,
+    Albacete,
+    Alicante,
+    Almeria,
+    Asturias,
+    Avila,
+    Badajoz,
+    Baleares,
+    Barcelona,
+    Burgos,
+    Caceres,
+    Cadiz,
+    Cantabria,
+    Castellon,
+    Ceuta,
+    CiudadReal,
+    Cordoba,
+    Coruna,
+    Cuenca,
+    Gerona,
+    Granada,
+    Guadalajara,
+    Guipuzcoa,
+    Huelva,
+    Huesca,
+    Jaen,
+    Leon,
+    Lerida,
+    Lugo,
+    Madrid,
+    Malaga,
+    Melilla,
+    Murcia,
+    Navarra,
+    Orense,
+    Palencia,
+    Palmas,
+    Pontevedra,
+    Rioja,
+    Salamanca,
+    SantaCruzDeTenerife,
+    Segovia,
+    Sevilla,
+    Soria,
+    Tarragona,
+    Teruel,
+    Toledo,
+    Valencia,
+    Valladolid,
+    Vizcaya,
+    Zamora,
+    Zaragoza,
+}
+
+impl Province {
+    /// Slug de provincia tal como lo usa Empresite en la URL.
+    pub fn query_value(self) -> &'static str {
+        match self {
+            Province::Alava => "ALAVA",
+            Province::Albacete => "ALBACETE",
+            Province::Alicante => "ALICANTE",
+            Province::Almeria => "ALMERIA",
+            Province::Asturias => "ASTURIAS",
+            Province::Avila => "AVILA",
+            Province::Badajoz => "BADAJOZ",
+            Province::Baleares => "BALEARES",
+            Province::Barcelona => "BARCELONA",
+            Province::Burgos => "BURGOS",
+            Province::Caceres => "CACERES",
+            Province::Cadiz => "CADIZ",
+            Province::Cantabria => "CANTABRIA",
+            Province::Castellon => "CASTELLON",
+            Province::Ceuta => "CEUTA",
+            Province::CiudadReal => "CIUDAD-REAL",
+            Province::Cordoba => "CORDOBA",
+            Province::Coruna => "CORUNA",
+            Province::Cuenca => "CUENCA",
+            Province::Gerona => "GERONA",
+            Province::Granada => "GRANADA",
+            Province::Guadalajara => "GUADALAJARA",
+            Province::Guipuzcoa => "GUIPUZCOA",
+            Province::Huelva => "HUELVA",
+            Province::Huesca => "HUESCA",
+            Province::Jaen => "JAEN",
+            Province::Leon => "LEON",
+            Province::Lerida => "LERIDA",
+            Province::Lugo => "LUGO",
+            Province::Madrid => "MADRID",
+            Province::Malaga => "MALAGA",
+            Province::Melilla => "MELILLA",
+            Province::Murcia => "MURCIA",
+            Province::Navarra => "NAVARRA",
+            Province::Orense => "ORENSE",
+            Province::Palencia => "PALENCIA",
+            Province::Palmas => "PALMAS",
+            Province::Pontevedra => "PONTEVEDRA",
+            Province::Rioja => "RIOJA",
+            Province::Salamanca => "SALAMANCA",
+            Province::SantaCruzDeTenerife => "SANTA-CRUZ-TENERIFE",
+            Province::Segovia => "SEGOVIA",
+            Province::Sevilla => "SEVILLA",
+            Province::Soria => "SORIA",
+            Province::Tarragona => "TARRAGONA",
+            Province::Teruel => "TERUEL",
+            Province::Toledo => "TOLEDO",
+            Province::Valencia => "VALENCIA",
+            Province::Valladolid => "VALLADOLID",
+            Province::Vizcaya => "VIZCAYA",
+            Province::Zamora => "ZAMORA",
+            Province::Zaragoza => "ZARAGOZA",
         }
     }
 }

@@ -5,7 +5,7 @@ use scraper::{Html, Selector};
 
 use crate::context::Context;
 use crate::empresite::config::{
-    activity_action, activity_slug, ActivityAction, EmpresiteParams,
+    activity_action, activity_slug, province_path, ActivityAction, EmpresiteParams,
 };
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
@@ -313,10 +313,11 @@ fn clean_empresite_url(url: &str) -> String {
 
 /// Genera la URL del listado para una página concreta anexando los filtros.
 fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
+    let province = province_path(cfg.province);
     let base = if page <= 1 {
-        format!("{BASE_URL}/Actividad/{activity}/")
+        format!("{BASE_URL}/Actividad/{activity}/{province}")
     } else {
-        format!("{BASE_URL}/Actividad/{activity}/PgNum-{page}/")
+        format!("{BASE_URL}/Actividad/{activity}/{province}PgNum-{page}/")
     };
 
     let filters = cfg.filter_query();
@@ -346,7 +347,7 @@ enum DetailOutcome {
     Found(Coincidence),
     Skipped,
 }
-
+ 
 #[derive(Debug, thiserror::Error)]
 #[error("Captcha locked the page. VPN unable to rotate.")]
 struct CaptchaError;
@@ -537,7 +538,12 @@ async fn scrape_internal<P: Persistence>(
         // Si Empresite renombra la actividad, la redireccion pierde el PgNum y
         // devuelve siempre la pagina 1. Fijamos el nombre canonico y, si no
         // estabamos en la primera pagina, recargamos la pagina correcta.
-        match activity_action(&activity, &fetched.final_url, params.page) {
+        match activity_action(
+            &activity,
+            &fetched.final_url,
+            params.page,
+            config.empresite.province.is_some(),
+        ) {
             ActivityAction::Keep => {}
             ActivityAction::Renamed { canonical, reload } => {
                 verboser.warn(&format!(
@@ -710,6 +716,24 @@ mod tests {
         assert_eq!(
             listing_url("BARCOS-DE-VELA", 3, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/PgNum-3/"
+        );
+    }
+
+    #[test]
+    fn test_listing_url_con_provincia() {
+        use crate::types::Province;
+
+        let cfg = EmpresiteConfig {
+            province: Some(Province::Madrid),
+            ..Default::default()
+        };
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/"
+        );
+        assert_eq!(
+            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/"
         );
     }
 

@@ -460,8 +460,8 @@ async fn scrape_feed(
             } else {
                 verboser.debug(&format!(
                     "Feed mode: no coordinates in {href}, skipping radius filter"
-                ));
-            }
+                )); 
+            } 
 
             let old_name: String = page
                 .evaluate("document.querySelector('h1.DUwDvf')?.textContent?.trim() ?? ''")

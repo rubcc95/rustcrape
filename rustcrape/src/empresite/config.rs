@@ -1,5 +1,17 @@
 use serde::Serialize;
 
+use crate::types::Province;
+
+/// Segmento de path con la provincia (`provincia/{SLUG}/`) o cadena vacia si
+/// no hay filtro por provincia. Empresite espera la provincia entre la
+/// actividad y el `PgNum`: `/Actividad/{actividad}/provincia/{PROV}/PgNum-N/`.
+pub fn province_path(province: Option<Province>) -> String {
+    match province {
+        Some(province) => format!("provincia/{}/", province.query_value()),
+        None => String::new(),
+    }
+}
+
 /// Parametros de una tarea de Empresite: el indice de pagina a recorrer.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct EmpresiteParams {
@@ -67,11 +79,21 @@ pub enum ActivityAction {
 /// Importante: debe llamarse con la respuesta real (200), nunca con el 429 de
 /// bloqueo, porque una pagina bloqueada no redirige y no revela el nombre
 /// canonico.
-pub fn activity_action(requested: &str, final_url: &str, page: u32) -> ActivityAction {
+///
+/// Cuando Empresite renombra la actividad la redireccion tambien descarta el
+/// `PgNum` y la provincia, devolviendo siempre la pagina 1 sin filtro. Por eso
+/// hay que recargar tanto si no estabamos en la primera pagina como si habia
+/// una provincia configurada, incluso en la pagina 1.
+pub fn activity_action(
+    requested: &str,
+    final_url: &str,
+    page: u32,
+    has_province: bool,
+) -> ActivityAction {
     match activity_from_url(final_url) {
         Some(canonical) if canonical != requested => ActivityAction::Renamed {
             canonical,
-            reload: page > 1,
+            reload: page > 1 || has_province,
         },
         _ => ActivityAction::Keep,
     }
@@ -142,7 +164,8 @@ mod tests {
             activity_action(
                 "MANTENIMIENTO",
                 "https://empresite.eleconomista.es/Actividad/MANTENIMIENTO/",
-                1
+                1,
+                false
             ),
             ActivityAction::Keep
         );
@@ -155,7 +178,8 @@ mod tests {
             activity_action(
                 "MANTENIMIENTO",
                 "https://empresite.eleconomista.es/Actividad/MANTENIMIENTO/PgNum-2/",
-                2
+                2,
+                false
             ),
             ActivityAction::Keep
         );
@@ -167,7 +191,8 @@ mod tests {
             activity_action(
                 "MANTENIMIENTO",
                 "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/",
-                1
+                1,
+                false
             ),
             ActivityAction::Renamed {
                 canonical: "MANTENIMIENTOS".to_string(),
@@ -183,7 +208,8 @@ mod tests {
             activity_action(
                 "MANTENIMIENTO",
                 "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/",
-                2
+                2,
+                false
             ),
             ActivityAction::Renamed {
                 canonical: "MANTENIMIENTOS".to_string(),
@@ -198,9 +224,51 @@ mod tests {
             activity_action(
                 "MANTENIMIENTO",
                 "https://empresite.eleconomista.es/empresas-provincia/",
-                2
+                2,
+                false
             ),
             ActivityAction::Keep
         );
+    }
+
+    #[test]
+    fn test_activity_action_renombrado_con_provincia_pagina_1_recarga() {
+        // La redireccion perdio la provincia: hay que recargar la pagina 1.
+        assert_eq!(
+            activity_action(
+                "MANTENIMIENTO",
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/",
+                1,
+                true
+            ),
+            ActivityAction::Renamed {
+                canonical: "MANTENIMIENTOS".to_string(),
+                reload: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_activity_from_url_con_provincia() {
+        assert_eq!(
+            activity_from_url(
+                "https://empresite.eleconomista.es/Actividad/MANTENIMIENTOS/provincia/MADRID/PgNum-2/"
+            ),
+            Some("MANTENIMIENTOS".to_string())
+        );
+    }
+
+    #[test]
+    fn test_province_path() {
+        use crate::types::Province;
+
+        assert_eq!(province_path(None), "");
+        assert_eq!(province_path(Some(Province::Madrid)), "provincia/MADRID/");
+        assert_eq!(
+            province_path(Some(Province::SantaCruzDeTenerife)),
+            "provincia/SANTA-CRUZ-TENERIFE/"
+        );
+        assert_eq!(province_path(Some(Province::Rioja)), "provincia/RIOJA/");
+        assert_eq!(province_path(Some(Province::Palmas)), "provincia/PALMAS/");
     }
 }

@@ -82,6 +82,116 @@ export type LegalForm =
   | "public_administration"
   | "foreign_entity";
 
+export type Province =
+  | "coruna"
+  | "alava"
+  | "albacete"
+  | "alicante"
+  | "almeria"
+  | "asturias"
+  | "avila"
+  | "badajoz"
+  | "baleares"
+  | "barcelona"
+  | "burgos"
+  | "caceres"
+  | "cadiz"
+  | "cantabria"
+  | "castellon"
+  | "ceuta"
+  | "ciudad_real"
+  | "cordoba"
+  | "cuenca"
+  | "gerona"
+  | "granada"
+  | "guadalajara"
+  | "guipuzcoa"
+  | "huelva"
+  | "huesca"
+  | "jaen"
+  | "leon"
+  | "lerida"
+  | "lugo"
+  | "madrid"
+  | "malaga"
+  | "melilla"
+  | "murcia"
+  | "navarra"
+  | "orense"
+  | "palencia"
+  | "palmas"
+  | "pontevedra"
+  | "rioja"
+  | "salamanca"
+  | "santa_cruz_de_tenerife"
+  | "segovia"
+  | "sevilla"
+  | "soria"
+  | "tarragona"
+  | "teruel"
+  | "toledo"
+  | "valencia"
+  | "valladolid"
+  | "vizcaya"
+  | "zamora"
+  | "zaragoza";
+
+/** Provincias de Empresite con su etiqueta para el selector. */
+export const PROVINCES: { value: Province; label: string }[] = [
+  { value: "coruna", label: "A Coruña" },
+  { value: "alava", label: "Álava" },
+  { value: "albacete", label: "Albacete" },
+  { value: "alicante", label: "Alicante" },
+  { value: "almeria", label: "Almería" },
+  { value: "asturias", label: "Asturias" },
+  { value: "avila", label: "Ávila" },
+  { value: "badajoz", label: "Badajoz" },
+  { value: "baleares", label: "Baleares" },
+  { value: "barcelona", label: "Barcelona" },
+  { value: "burgos", label: "Burgos" },
+  { value: "caceres", label: "Cáceres" },
+  { value: "cadiz", label: "Cádiz" },
+  { value: "cantabria", label: "Cantabria" },
+  { value: "castellon", label: "Castellón" },
+  { value: "ceuta", label: "Ceuta" },
+  { value: "ciudad_real", label: "Ciudad Real" },
+  { value: "cordoba", label: "Córdoba" },
+  { value: "cuenca", label: "Cuenca" },
+  { value: "gerona", label: "Girona" },
+  { value: "granada", label: "Granada" },
+  { value: "guadalajara", label: "Guadalajara" },
+  { value: "guipuzcoa", label: "Guipúzcoa" },
+  { value: "huelva", label: "Huelva" },
+  { value: "huesca", label: "Huesca" },
+  { value: "jaen", label: "Jaén" },
+  { value: "leon", label: "León" },
+  { value: "lerida", label: "Lleida" },
+  { value: "lugo", label: "Lugo" },
+  { value: "madrid", label: "Madrid" },
+  { value: "malaga", label: "Málaga" },
+  { value: "melilla", label: "Melilla" },
+  { value: "murcia", label: "Murcia" },
+  { value: "navarra", label: "Navarra" },
+  { value: "orense", label: "Ourense" },
+  { value: "palencia", label: "Palencia" },
+  { value: "palmas", label: "Las Palmas" },
+  { value: "pontevedra", label: "Pontevedra" },
+  { value: "rioja", label: "La Rioja" },
+  { value: "salamanca", label: "Salamanca" },
+  { value: "santa_cruz_de_tenerife", label: "Santa Cruz de Tenerife" },
+  { value: "segovia", label: "Segovia" },
+  { value: "sevilla", label: "Sevilla" },
+  { value: "soria", label: "Soria" },
+  { value: "tarragona", label: "Tarragona" },
+  { value: "teruel", label: "Teruel" },
+  { value: "toledo", label: "Toledo" },
+  { value: "valencia", label: "Valencia" },
+  { value: "valladolid", label: "Valladolid" },
+  { value: "vizcaya", label: "Vizcaya" },
+  { value: "zamora", label: "Zamora" },
+  { value: "zaragoza", label: "Zaragoza" },
+];
+
 export interface EmployeeRange {
   min: number;
   max: number;
@@ -105,6 +215,7 @@ export interface EmpresiteConfig {
   employees: EmployeeRange | null;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
+  province: Province | null;
 }
 
 /** Filtros de Empresite en el estado del formulario (rango con bandera). */
@@ -120,6 +231,7 @@ export interface EmpresiteFilters {
   employees_max: number;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
+  province: Province | null;
 }
 
 export type DbConfig =

@@ -3,7 +3,13 @@
   import NumberInput from "./NumberInput.svelte";
   import Checkbox from "./Checkbox.svelte";
   import Panel from "./Panel.svelte";
-  import type { CompanySize, IncorporationDate, LegalForm } from "../lib/types";
+  import type {
+    CompanySize,
+    IncorporationDate,
+    LegalForm,
+    Province,
+  } from "../lib/types";
+  import { PROVINCES } from "../lib/types";
   import CheckboxNumber from "./CheckboxNumber.svelte";
   import ExecutionConfig from "./ExecutionPanel.svelte";
 
@@ -23,6 +29,12 @@
     const value = (e.currentTarget as HTMLSelectElement).value;
     projectStore.projectDraft.empresite_filters.legal_form =
       value === "" ? null : (value as LegalForm);
+  }
+
+  function onProvinceChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    projectStore.projectDraft.empresite_filters.province =
+      value === "" ? null : (value as Province);
   }
 </script>
 
@@ -345,6 +357,20 @@
             <option value="foreign_entity"
               >Entidad Extranjera no Residente</option
             >
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="emp-province">Provincia</label>
+          <select
+            id="emp-province"
+            value={projectStore.projectDraft.empresite_filters.province ?? ""}
+            onchange={onProvinceChange}
+          >
+            <option value="">Todas</option>
+            {#each PROVINCES as province (province.value)}
+              <option value={province.value}>{province.label}</option>
+            {/each}
           </select>
         </div>
 

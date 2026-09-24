@@ -85,7 +85,7 @@ where
     let command = Command::new(path)
         .args(&args)
         .kill_on_drop(true)
-        .status();
+        .status(); 
     tokio::select! {
         _ = cancel.cancelled() => return Err(Cancelled.into()),
         result = tokio::time::timeout(VPN_COMMAND_TIMEOUT, command) => match result {
