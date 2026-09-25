@@ -15,7 +15,9 @@
 
   let query = $state("");
   let open = $state(false);
+  let active = $state(0);
   let root = $state<HTMLDivElement | null>(null);
+  let list = $state<HTMLUListElement | null>(null);
 
   const matches = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -26,11 +28,20 @@
 
   const byId = $derived(new Map(towns.map((t) => [t.id, t.name])));
 
-  function add(id: string): void {
-    if (!selected.includes(id)) onchange([...selected, id]);
-    query = "";
-    open = false;
-  }
+  // Al cambiar la lista de coincidencias, la entrada destacada vuelve arriba.
+  $effect(() => {
+    matches;
+    active = 0;
+  });
+
+  // Mantiene visible la entrada destacada dentro del dropdown.
+  $effect(() => {
+    active;
+    open;
+    list
+      ?.querySelectorAll(".dropdown-row")
+      [active]?.scrollIntoView({ block: "nearest" });
+  });
 
   function toggle(id: string): void {
     if (selected.includes(id)) {
@@ -38,8 +49,13 @@
     } else {
       onchange([...selected, id]);
     }
-    // Con ratón el dropdown se mantiene abierto para encadenar selecciones.
+    // El dropdown se mantiene abierto para encadenar selecciones.
     query = "";
+  }
+
+  function toggleActive(): void {
+    const match = matches[active];
+    if (match) toggle(match.id);
   }
 
   function remove(id: string): void {
@@ -53,9 +69,17 @@
   }
 
   function onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Enter" && matches.length > 0) {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
-      add(matches[0].id);
+      open = true;
+      if (matches.length > 0) active = (active + 1) % matches.length;
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      open = true;
+      if (matches.length > 0) active = (active - 1 + matches.length) % matches.length;
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      toggleActive();
     } else if (e.key === "Escape") {
       open = false;
     }
@@ -75,18 +99,24 @@
       autocomplete="off"
     />
     {#if open && matches.length > 0}
-      <ul class="dropdown">
-        {#each matches as town (town.id)}
-          <li>
-            <label class="dropdown-row">
-              <input
-                type="checkbox"
-                checked={selected.includes(town.id)}
-                onmousedown={(e) => e.preventDefault()}
-                onchange={() => toggle(town.id)}
-              />
-              {town.name}
-            </label>
+      <ul class="dropdown" bind:this={list}>
+        {#each matches as town, i (town.id)}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <li
+            class="dropdown-row"
+            class:active={i === active}
+            onmousedown={(e) => e.preventDefault()}
+            onmouseenter={() => (active = i)}
+            onclick={() => toggle(town.id)}
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(town.id)}
+              tabindex="-1"
+              readonly
+            />
+            {town.name}
           </li>
         {/each}
       </ul>
@@ -154,7 +184,8 @@
     cursor: pointer;
   }
 
-  .dropdown-row:hover {
+  .dropdown-row:hover,
+  .dropdown-row.active {
     background: var(--bg-hover, rgba(127, 127, 127, 0.15));
   }
 

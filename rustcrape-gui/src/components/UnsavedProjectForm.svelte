@@ -19,7 +19,9 @@
 
   let provinceQuery = $state("");
   let provinceOpen = $state(false);
+  let provinceActive = $state(0);
   let provinceRoot = $state<HTMLDivElement | null>(null);
+  let provinceList = $state<HTMLUListElement | null>(null);
 
   const selectedProvinces = $derived(filters.location_provinces);
 
@@ -28,6 +30,21 @@
     return PROVINCES.filter(
       (p) => q === "" || p.label.toLowerCase().includes(q)
     ).slice(0, 8);
+  });
+
+  // Al cambiar la lista de coincidencias, la entrada destacada vuelve arriba.
+  $effect(() => {
+    provinceMatches;
+    provinceActive = 0;
+  });
+
+  // Mantiene visible la entrada destacada dentro del dropdown.
+  $effect(() => {
+    provinceActive;
+    provinceOpen;
+    provinceList
+      ?.querySelectorAll(".dropdown-row")
+      [provinceActive]?.scrollIntoView({ block: "nearest" });
   });
 
   function provinceLabel(province: Province): string {
@@ -39,22 +56,19 @@
     return slug ? (TOWNS_BY_PROVINCE[slug] ?? []) : [];
   }
 
-  function addProvince(province: Province): void {
-    if (!filters.location_provinces.includes(province)) {
-      filters.location_provinces = [...filters.location_provinces, province];
-    }
-    provinceQuery = "";
-    provinceOpen = false;
-  }
-
   function toggleProvince(province: Province): void {
     if (filters.location_provinces.includes(province)) {
       removeProvince(province);
     } else {
       filters.location_provinces = [...filters.location_provinces, province];
     }
-    // Con ratón el dropdown se mantiene abierto para encadenar selecciones.
+    // El dropdown se mantiene abierto para encadenar selecciones.
     provinceQuery = "";
+  }
+
+  function toggleActiveProvince(): void {
+    const match = provinceMatches[provinceActive];
+    if (match) toggleProvince(match.value);
   }
 
   function removeProvince(province: Province): void {
@@ -73,9 +87,22 @@
   }
 
   function onProvinceKeydown(e: KeyboardEvent): void {
-    if (e.key === "Enter" && provinceMatches.length > 0) {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
-      addProvince(provinceMatches[0].value);
+      provinceOpen = true;
+      if (provinceMatches.length > 0) {
+        provinceActive = (provinceActive + 1) % provinceMatches.length;
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      provinceOpen = true;
+      if (provinceMatches.length > 0) {
+        provinceActive =
+          (provinceActive - 1 + provinceMatches.length) % provinceMatches.length;
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      toggleActiveProvince();
     } else if (e.key === "Escape") {
       provinceOpen = false;
     }
@@ -435,18 +462,24 @@
             autocomplete="off"
           />
           {#if provinceOpen && provinceMatches.length > 0}
-            <ul class="dropdown">
-              {#each provinceMatches as province (province.value)}
-                <li>
-                  <label class="dropdown-row">
-                    <input
-                      type="checkbox"
-                      checked={selectedProvinces.includes(province.value)}
-                      onmousedown={(e) => e.preventDefault()}
-                      onchange={() => toggleProvince(province.value)}
-                    />
-                    {province.label}
-                  </label>
+            <ul class="dropdown" bind:this={provinceList}>
+              {#each provinceMatches as province, i (province.value)}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <li
+                  class="dropdown-row"
+                  class:active={i === provinceActive}
+                  onmousedown={(e) => e.preventDefault()}
+                  onmouseenter={() => (provinceActive = i)}
+                  onclick={() => toggleProvince(province.value)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedProvinces.includes(province.value)}
+                    tabindex="-1"
+                    readonly
+                  />
+                  {province.label}
                 </li>
               {/each}
             </ul>
@@ -693,17 +726,25 @@
   .dropdown-row {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 0.5rem;
     padding: 0.45rem 0.7rem;
     cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--text, #e0e0e0);
+    text-transform: none;
+    letter-spacing: normal;
   }
 
-  .dropdown-row:hover {
+  .dropdown-row:hover,
+  .dropdown-row.active {
     background: var(--bg-hover, rgba(127, 127, 127, 0.15));
   }
 
   .dropdown-row input {
     cursor: pointer;
+    width: auto;
   }
 
   .chips {
