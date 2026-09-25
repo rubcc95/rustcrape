@@ -7,74 +7,61 @@
     CompanySize,
     IncorporationDate,
     LegalForm,
-    LocationMode,
     Province,
   } from "../lib/types";
   import { PROVINCES } from "../lib/types";
   import { TOWNS_BY_PROVINCE } from "../lib/data/empresiteLocations";
   import CheckboxNumber from "./CheckboxNumber.svelte";
+  import LocalityPicker from "./LocalityPicker.svelte";
   import ExecutionConfig from "./ExecutionPanel.svelte";
 
   const filters = $derived(projectStore.projectDraft.empresite_filters);
 
   let provinceQuery = $state("");
-  let townQuery = $state("");
+  let provinceOpen = $state(false);
 
-  const filteredProvinces = $derived(
-    PROVINCES.filter((p) =>
-      p.label.toLowerCase().includes(provinceQuery.trim().toLowerCase())
-    )
-  );
+  const selectedProvinces = $derived(filters.location_provinces);
+
+  const provinceMatches = $derived.by(() => {
+    const q = provinceQuery.trim().toLowerCase();
+    return PROVINCES.filter(
+      (p) => !selectedProvinces.includes(p.value) && (q === "" || p.label.toLowerCase().includes(q))
+    ).slice(0, 8);
+  });
+
+  function provinceLabel(province: Province): string {
+    return PROVINCES.find((p) => p.value === province)?.label ?? province;
+  }
 
   function townsForProvince(province: Province) {
     const slug = PROVINCES.find((p) => p.value === province)?.slug;
     return slug ? (TOWNS_BY_PROVINCE[slug] ?? []) : [];
   }
 
-  /** Provincias marcadas que tienen localidades disponibles (según datos). */
-  const provincesWithTowns = $derived(
-    filters.location_provinces.filter((p) => townsForProvince(p).length > 0)
-  );
-
-  function filteredTowns(province: Province) {
-    const q = townQuery.trim().toLowerCase();
-    return townsForProvince(province).filter(
-      (t) => q === "" || t.name.toLowerCase().includes(q)
-    );
-  }
-
-  function isProvinceSelected(province: Province): boolean {
-    return filters.location_provinces.includes(province);
-  }
-
-  function toggleProvince(province: Province, checked: boolean): void {
-    if (checked) {
-      if (!filters.location_provinces.includes(province)) {
-        filters.location_provinces = [...filters.location_provinces, province];
-      }
-    } else {
-      filters.location_provinces = filters.location_provinces.filter(
-        (p) => p !== province
-      );
-      const next = { ...filters.location_localities };
-      delete next[province];
-      filters.location_localities = next;
+  function addProvince(province: Province): void {
+    if (!filters.location_provinces.includes(province)) {
+      filters.location_provinces = [...filters.location_provinces, province];
     }
+    provinceQuery = "";
+    provinceOpen = false;
   }
 
-  function selectedTowns(province: Province): string[] {
-    return filters.location_localities[province] ?? [];
+  function removeProvince(province: Province): void {
+    filters.location_provinces = filters.location_provinces.filter(
+      (p) => p !== province
+    );
+    const next = { ...filters.location_localities };
+    delete next[province];
+    filters.location_localities = next;
   }
 
-  function toggleTown(province: Province, id: string, checked: boolean): void {
-    const current = selectedTowns(province);
-    const next = checked
-      ? [...current, id]
-      : current.filter((t) => t !== id);
-    filters.location_localities = {
-      ...filters.location_localities,
-      [province]: next,
-    };
+  function onProvinceKeydown(e: KeyboardEvent): void {
+    if (e.key === "Enter" && provinceMatches.length > 0) {
+      e.preventDefault();
+      addProvince(provinceMatches[0].value);
+    } else if (e.key === "Escape") {
+      provinceOpen = false;
+    }
   }
 
   function onCompanySizeChange(e: Event): void {
@@ -93,16 +80,6 @@
     const value = (e.currentTarget as HTMLSelectElement).value;
     projectStore.projectDraft.empresite_filters.legal_form =
       value === "" ? null : (value as LegalForm);
-  }
-
-  function onLocationModeChange(e: Event): void {
-    const value = (e.currentTarget as HTMLSelectElement)
-      .value as LocationMode;
-    filters.location_mode = value;
-    if (value === "none") {
-      filters.location_provinces = [];
-      filters.location_localities = {};
-    }
   }
 </script>
 
@@ -428,87 +405,78 @@
           </select>
         </div>
 
-        <div class="field">
-          <label for="emp-location-mode">Ubicación</label>
-          <select
-            id="emp-location-mode"
-            value={filters.location_mode}
-            onchange={onLocationModeChange}
-          >
-            <option value="none">Sin filtro</option>
-            <option value="province">Provincias</option>
-            <option value="locality">Provincias y localidades</option>
-          </select>
+        <div class="field location-search">
+          <label for="emp-province-search">Provincia</label>
+          <input
+            type="text"
+            id="emp-province-search"
+            bind:value={provinceQuery}
+            oninput={() => (provinceOpen = true)}
+            onfocus={() => (provinceOpen = true)}
+            onkeydown={onProvinceKeydown}
+            placeholder="Buscar provincia..."
+            autocomplete="off"
+          />
+          {#if provinceOpen && provinceMatches.length > 0}
+            <ul class="dropdown">
+              {#each provinceMatches as province (province.value)}
+                <li>
+                  <button
+                    type="button"
+                    onmousedown={(e) => {
+                      e.preventDefault();
+                      addProvince(province.value);
+                    }}
+                  >
+                    {province.label}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </div>
 
-        {#if filters.location_mode !== "none"}
-          <div class="field">
-            <label for="emp-province-search">Buscar provincia</label>
-            <input
-              type="text"
-              id="emp-province-search"
-              bind:value={provinceQuery}
-              placeholder="Madrid, Málaga..."
-            />
-          </div>
-          <div class="checkbox-list">
-            {#each filteredProvinces as province (province.value)}
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={isProvinceSelected(province.value)}
-                  onchange={(e) =>
-                    toggleProvince(
-                      province.value,
-                      (e.currentTarget as HTMLInputElement).checked
-                    )}
-                />
-                {province.label}
-              </label>
+        {#if selectedProvinces.length > 0}
+          <div class="chips">
+            {#each selectedProvinces as province (province)}
+              <span class="chip">
+                {provinceLabel(province)}
+                <button
+                  type="button"
+                  class="chip-remove"
+                  aria-label="Quitar {provinceLabel(province)}"
+                  onclick={() => removeProvince(province)}
+                >
+                  ×
+                </button>
+              </span>
             {/each}
           </div>
         {/if}
 
-        {#if filters.location_mode === "locality" && provincesWithTowns.length > 0}
-          <div class="field">
-            <label for="emp-town-search">Buscar localidad</label>
-            <input
-              type="text"
-              id="emp-town-search"
-              bind:value={townQuery}
-              placeholder="Arona, Oviedo..."
-            />
+        {#each selectedProvinces as province (province)}
+          {@const towns = townsForProvince(province)}
+          <div class="locality-block">
+            <label for="emp-town-search-{province}">
+              Localidades de {provinceLabel(province)}
+            </label>
+            {#if towns.length > 0}
+              <LocalityPicker
+                province={province}
+                towns={towns}
+                selected={filters.location_localities[province] ?? []}
+                onchange={(ids) => {
+                  filters.location_localities = {
+                    ...filters.location_localities,
+                    [province]: ids,
+                  };
+                }}
+              />
+            {:else}
+              <p class="hint">Sin localidades: se buscará en toda la provincia.</p>
+            {/if}
           </div>
-          <div class="town-groups">
-            {#each provincesWithTowns as province (province)}
-              <div class="town-group">
-                <p class="town-group-title">
-                  {PROVINCES.find((p) => p.value === province)?.label ?? province}
-                  <span class="hint">
-                    (sin marcar ninguna = toda la provincia)
-                  </span>
-                </p>
-                <div class="checkbox-list">
-                  {#each filteredTowns(province) as town (town.id)}
-                    <label class="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={selectedTowns(province).includes(town.id)}
-                        onchange={(e) =>
-                          toggleTown(
-                            province,
-                            town.id,
-                            (e.currentTarget as HTMLInputElement).checked
-                          )}
-                      />
-                      {town.name}
-                    </label>
-                  {/each}
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
+        {/each}
 
         <Checkbox
           bind:value={
@@ -680,43 +648,85 @@
     transform: scale(1);
   }
 
-  .checkbox-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 0.25rem 1rem;
-    max-height: 220px;
-    overflow-y: auto;
-    padding: 0.5rem;
+  .location-search {
+    position: relative;
+  }
+
+  .location-search input {
+    width: 100%;
+  }
+
+  .dropdown {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0.25rem 0;
+    list-style: none;
+    background: var(--bg);
     border: 1px solid var(--border, #2a3a5c);
     border-radius: 6px;
-    background: var(--bg);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    max-height: 240px;
+    overflow-y: auto;
   }
 
-  .checkbox-row {
+  .dropdown button {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.7rem;
+    text-align: left;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .dropdown button:hover {
+    background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+  }
+
+  .chips {
     display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .chip {
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-    cursor: pointer;
+    gap: 0.35rem;
+    padding: 0.2rem 0.35rem 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+    border: 1px solid var(--border, #2a3a5c);
+    font-size: 0.85rem;
   }
 
-  .checkbox-row input {
+  .chip-remove {
+    background: none;
+    border: none;
+    color: inherit;
     cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+    opacity: 0.7;
   }
 
-  .town-groups {
+  .chip-remove:hover {
+    opacity: 1;
+  }
+
+  .locality-block {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-  }
-
-  .town-group-title {
-    margin: 0 0 0.35rem;
-    font-weight: 600;
-  }
-
-  .town-group-title .hint {
-    font-weight: 400;
-    font-size: 0.8rem;
+    gap: 0.4rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border, #2a3a5c);
+    border-radius: 6px;
   }
 </style>

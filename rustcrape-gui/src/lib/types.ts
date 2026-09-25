@@ -246,9 +246,6 @@ export interface EmpresiteConfig {
   location_filters: EmpresiteLocation[];
 }
 
-/** Modo del filtro geográfico en el estado del formulario. */
-export type LocationMode = "none" | "province" | "locality";
-
 /** Filtros de Empresite en el estado del formulario (rango con bandera).
  *  La ubicación es multi-selección: provincias marcadas y, opcionalmente,
  *  localidades concretas dentro de cada una. */
@@ -264,7 +261,6 @@ export interface EmpresiteFilters {
   employees_max: number;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
-  location_mode: LocationMode;
   location_provinces: Province[];
   /** Localidades marcadas por provincia (valor interno de la provincia). */
   location_localities: Partial<Record<Province, string[]>>;

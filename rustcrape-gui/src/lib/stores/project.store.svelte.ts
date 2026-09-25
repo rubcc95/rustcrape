@@ -6,7 +6,6 @@ import type {
   DbConfig,
   EmpresiteFilters,
   EmpresiteLocation,
-  LocationMode,
   Province,
   IterationStats,
 } from "../types";
@@ -56,7 +55,6 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
     employees_max: 100,
     incorporation_date: null,
     legal_form: null,
-    location_mode: "none",
     location_provinces: [],
     location_localities: {},
   };
@@ -66,7 +64,6 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
  *  Por cada provincia marcada: una entrada de provincia si no tiene
  *  localidades marcadas, o una entrada por cada localidad si las tiene. */
 function buildLocationFilters(ef: EmpresiteFilters): EmpresiteLocation[] {
-  if (ef.location_mode === "none") return [];
   const filters: EmpresiteLocation[] = [];
   for (const province of ef.location_provinces) {
     const towns = ef.location_localities[province] ?? [];
@@ -77,12 +74,6 @@ function buildLocationFilters(ef: EmpresiteFilters): EmpresiteLocation[] {
     }
   }
   return filters;
-}
-
-/** Modo del formulario a partir de los filtros guardados. */
-function locationModeFrom(filters: EmpresiteLocation[]): LocationMode {
-  if (filters.length === 0) return "none";
-  return filters.some((f) => "locality" in f) ? "locality" : "province";
 }
 
 /** Reconstruye la selección del formulario desde los filtros guardados. */
@@ -258,7 +249,6 @@ class ProjectStore {
         employees_max: c.empresite.employees?.max ?? 100,
         incorporation_date: c.empresite.incorporation_date ?? null,
         legal_form: c.empresite.legal_form ?? null,
-        location_mode: locationModeFrom(c.empresite.location_filters ?? []),
         ...(() => {
           const sel = selectionFrom(c.empresite.location_filters ?? []);
           return {
