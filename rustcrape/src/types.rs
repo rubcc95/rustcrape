@@ -277,14 +277,15 @@ pub struct EmpresiteConfig {
     pub incorporation_date: Option<IncorporationDate>,
     /// Forma juridica.
     pub legal_form: Option<LegalForm>,
-    /// Filtro geografico (opcional): provincia o localidad, mutuamente
-    /// excluyentes. Viaja como segmento de path en la URL:
-    /// `/provincia/{PROV}/` o `/localidad/{PUEBLO-PROV}/`.
-    pub location_filter: Option<EmpresiteLocation>,
+    /// Filtros geograficos (opcional): cada entrada es una provincia entera o
+    /// una localidad concreta. Un mismo proyecto puede combinar varias. Viajan
+    /// como segmento de path en la URL: `/provincia/{PROV}/` o
+    /// `/localidad/{PUEBLO-PROV}/`.
+    #[serde(default)]
+    pub location_filters: Vec<EmpresiteLocation>,
 }
 
-/// Filtro de ubicacion del listado de Empresite. Provincia y localidad son
-/// excluyentes: buscar por una descarta la otra.
+/// Filtro de ubicacion del listado de Empresite.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmpresiteLocation {
@@ -294,6 +295,36 @@ pub enum EmpresiteLocation {
     /// Empresite espera en el segmento de path (`ARONA-SANTA-CRUZ-TENERIFE`),
     /// tal como figura en `utils/empresite_locations.json`.
     Locality { id: String },
+}
+
+impl EmpresiteLocation {
+    /// Discriminante textual usado en la cola persistente (`empresite_tasks`).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            EmpresiteLocation::Province(_) => "province",
+            EmpresiteLocation::Locality { .. } => "locality",
+        }
+    }
+
+    /// Identificador estable dentro de su tipo: slug de provincia o id de
+    /// localidad.
+    pub fn location_id(&self) -> &str {
+        match self {
+            EmpresiteLocation::Province(province) => province.query_value(),
+            EmpresiteLocation::Locality { id } => id,
+        }
+    }
+
+    /// Reconstruye una ubicacion desde las columnas de la cola persistente.
+    /// Devuelve `None` si el tipo es desconocido o el id no corresponde a una
+    /// provincia valida.
+    pub fn from_kind_id(kind: &str, id: &str) -> Option<Self> {
+        match kind {
+            "province" => Province::from_query_value(id).map(EmpresiteLocation::Province),
+            "locality" => Some(EmpresiteLocation::Locality { id: id.to_string() }),
+            _ => None,
+        }
+    }
 }
 
 impl EmpresiteConfig {
@@ -548,6 +579,65 @@ impl Province {
             Province::Zamora => "ZAMORA",
             Province::Zaragoza => "ZARAGOZA",
         }
+    }
+
+    /// Inverso de `query_value`: reconstruye la provincia a partir de su slug.
+    pub fn from_query_value(slug: &str) -> Option<Self> {
+        const ALL: &[Province] = &[
+            Province::Alava,
+            Province::Albacete,
+            Province::Alicante,
+            Province::Almeria,
+            Province::Asturias,
+            Province::Avila,
+            Province::Badajoz,
+            Province::Baleares,
+            Province::Barcelona,
+            Province::Burgos,
+            Province::Caceres,
+            Province::Cadiz,
+            Province::Cantabria,
+            Province::Castellon,
+            Province::Ceuta,
+            Province::CiudadReal,
+            Province::Cordoba,
+            Province::Coruna,
+            Province::Cuenca,
+            Province::Gerona,
+            Province::Granada,
+            Province::Guadalajara,
+            Province::Guipuzcoa,
+            Province::Huelva,
+            Province::Huesca,
+            Province::Jaen,
+            Province::Leon,
+            Province::Lerida,
+            Province::Lugo,
+            Province::Madrid,
+            Province::Malaga,
+            Province::Melilla,
+            Province::Murcia,
+            Province::Navarra,
+            Province::Orense,
+            Province::Palencia,
+            Province::Palmas,
+            Province::Pontevedra,
+            Province::Rioja,
+            Province::Salamanca,
+            Province::SantaCruzDeTenerife,
+            Province::Segovia,
+            Province::Sevilla,
+            Province::Soria,
+            Province::Tarragona,
+            Province::Teruel,
+            Province::Toledo,
+            Province::Valencia,
+            Province::Valladolid,
+            Province::Vizcaya,
+            Province::Zamora,
+            Province::Zaragoza,
+        ];
+        ALL.iter().copied().find(|p| p.query_value() == slug)
     }
 }
 

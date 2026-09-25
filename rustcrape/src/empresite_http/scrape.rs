@@ -9,7 +9,7 @@ use crate::empresite::config::{
 };
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, Config, EmpresiteConfig};
+use crate::types::{Coincidence, Config, EmpresiteConfig, EmpresiteLocation};
 use crate::utils::random_delay;
 use crate::utils::*;
 
@@ -312,8 +312,8 @@ fn clean_empresite_url(url: &str) -> String {
 }
 
 /// Genera la URL del listado para una página concreta anexando los filtros.
-fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
-    let location = location_path(cfg.location_filter.as_ref());
+fn listing_url(activity: &str, location: &EmpresiteLocation, page: u32, cfg: &EmpresiteConfig) -> String {
+    let location = location_path(Some(location));
     let base = if page <= 1 {
         format!("{BASE_URL}/Actividad/{activity}/{location}")
     } else {
@@ -508,7 +508,7 @@ async fn scrape_internal<P: Persistence>(
     // Carga el listado, rotando IP mientras esté bloqueado.
     let mut listing: Option<(Vec<String>, bool)> = None;
     for attempt in 1..=MAX_LISTING_ATTEMPTS {
-        let url = listing_url(&activity, params.page, &config.empresite);
+        let url = listing_url(&activity, &params.location, params.page, &config.empresite);
         verboser.debug(&format!(
             "Empresite HTTP listing: attempt {attempt}/{MAX_LISTING_ATTEMPTS} -> {url}"
         ));
@@ -542,7 +542,7 @@ async fn scrape_internal<P: Persistence>(
             &activity,
             &fetched.final_url,
             params.page,
-            config.empresite.location_filter.is_some(),
+            true,
         ) {
             ActivityAction::Keep => {}
             ActivityAction::Renamed { canonical, reload } => {
@@ -723,16 +723,14 @@ mod tests {
     fn test_listing_url_con_provincia() {
         use crate::types::{EmpresiteLocation, Province};
 
-        let cfg = EmpresiteConfig {
-            location_filter: Some(EmpresiteLocation::Province(Province::Madrid)),
-            ..Default::default()
-        };
+        let cfg = EmpresiteConfig::default();
+        let location = EmpresiteLocation::Province(Province::Madrid);
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 1, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/"
         );
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/"
         );
     }
@@ -741,18 +739,16 @@ mod tests {
     fn test_listing_url_con_localidad() {
         use crate::types::EmpresiteLocation;
 
-        let cfg = EmpresiteConfig {
-            location_filter: Some(EmpresiteLocation::Locality {
-                id: "SAN-MATEO-GALLEGO-ZARAGOZA".to_string(),
-            }),
-            ..Default::default()
+        let cfg = EmpresiteConfig::default();
+        let location = EmpresiteLocation::Locality {
+            id: "SAN-MATEO-GALLEGO-ZARAGOZA".to_string(),
         };
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 1, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/SAN-MATEO-GALLEGO-ZARAGOZA/"
         );
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/SAN-MATEO-GALLEGO-ZARAGOZA/PgNum-2/"
         );
     }

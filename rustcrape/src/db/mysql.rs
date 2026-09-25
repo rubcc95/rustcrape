@@ -1,7 +1,7 @@
 use crate::storage::{Persistence, WriteOutcome};
 use crate::types::{
-    Coincidence, CoincidenceColumn, CoincidencePage, CoincidenceRecord, DbConfig, GMapsConfig,
-    ProjectStats, SortOrder,
+    Coincidence, CoincidenceColumn, CoincidencePage, CoincidenceRecord, DbConfig, EmpresiteLocation,
+    GMapsConfig, ProjectStats, SortOrder,
 };
 use crate::verboser::Verboser;
 use anyhow::Result;
@@ -30,7 +30,7 @@ const NEW_BOUND_COLUMNS: &[(&str, &str)] = &[
 ];
 
 // Tablas imprescindibles para reconocer la base de datos como de rustcrape.
-// `bounds` (Google Maps) y `empresite_pages` (Empresite) se crean bajo demanda
+// `bounds` (Google Maps) y `empresite_tasks` (Empresite) se crean bajo demanda
 // segun el target que se vaya a usar.
 const REQUIRED_TABLES: &[&str] = &["coincidences", "configuration_rustcrape"];
 
@@ -314,7 +314,7 @@ impl MysqlPersistence {
     }
 
     /// Crea (si faltan) las tablas opcionales de cada target: `bounds` para
-    /// Google Maps y `empresite_pages` para Empresite. No se exigen en
+    /// Google Maps y `empresite_tasks` para Empresite. No se exigen en
     /// `REQUIRED_TABLES` para permitir bases de datos de una sola web.
     async fn ensure_optional_tables(&self, verboser: &impl Verboser) -> Result<()> {
         verboser.debug("MySQL: ensuring optional table 'bounds'");
@@ -333,20 +333,28 @@ impl MysqlPersistence {
         .execute(&self.pool)
         .await?;
 
-        verboser.debug("MySQL: ensuring optional table 'empresite_pages'");
+        verboser.debug("MySQL: ensuring optional table 'empresite_tasks'");
         sqlx::raw_sql(
-            "CREATE TABLE IF NOT EXISTS empresite_pages (
+            "CREATE TABLE IF NOT EXISTS empresite_tasks (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                location_kind VARCHAR(16) NOT NULL,
+                location_id VARCHAR(255) NOT NULL,
                 page INT NOT NULL,
                 in_progress TINYINT(1) NOT NULL DEFAULT 0,
                 items INT DEFAULT NULL,
                 duplicated INT DEFAULT NULL,
                 started_at TIMESTAMP NULL DEFAULT NULL,
-                UNIQUE KEY uq_empresite_page (page)
+                UNIQUE KEY uq_empresite_task (location_kind, location_id, page)
             )",
         )
         .execute(&self.pool)
         .await?;
+
+        // Migracion: versiones antiguas usaban `empresite_pages` (solo pagina).
+        // El estado geografico no llego a produccion, asi que se descarta.
+        sqlx::raw_sql("DROP TABLE IF EXISTS empresite_pages")
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -537,7 +545,7 @@ impl Persistence for MysqlPersistence {
         .await?;
         let pages = sqlx::query(
             "SELECT CAST(COUNT(*) AS SIGNED) AS total, \
-             CAST(COALESCE(SUM(items IS NOT NULL), 0) AS SIGNED) AS done FROM empresite_pages",
+             CAST(COALESCE(SUM(items IS NOT NULL), 0) AS SIGNED) AS done FROM empresite_tasks",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -753,30 +761,35 @@ impl Persistence for MysqlPersistence {
         Ok(())
     }
 
-    async fn has_empresite_pages(&self) -> Result<bool> {
-        Ok(sqlx::query("SELECT 1 FROM empresite_pages LIMIT 1")
+    async fn has_empresite_tasks(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM empresite_tasks LIMIT 1")
             .fetch_optional(&self.pool)
             .await?
             .is_some())
     }
 
-    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
-        sqlx::query("INSERT IGNORE INTO empresite_pages (page) VALUES (?)")
-            .bind(page)
-            .execute(&self.pool)
-            .await?;
+    async fn insert_empresite_task(&self, location: &EmpresiteLocation, page: u32) -> Result<()> {
+        sqlx::query(
+            "INSERT IGNORE INTO empresite_tasks (location_kind, location_id, page) VALUES (?, ?, ?)",
+        )
+        .bind(location.kind())
+        .bind(location.location_id())
+        .bind(page)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+    async fn claim_empresite_task(&self) -> Result<Option<(i64, EmpresiteLocation, u32)>> {
         let mut tx = self.pool.begin().await?;
 
         let row = sqlx::query(
             r#"
-                SELECT id, PAGE 
-                FROM empresite_pages 
-                WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR) 
-                    AND items IS NULL 
+                SELECT id, location_kind, location_id, page
+                FROM empresite_tasks
+                WHERE (in_progress = 0 OR started_at < NOW() - INTERVAL 2 HOUR)
+                    AND items IS NULL
+                ORDER BY id
                 LIMIT 1
                 FOR UPDATE
             "#,
@@ -787,19 +800,25 @@ impl Persistence for MysqlPersistence {
         Ok(match row {
             Some(row) => {
                 let id: i64 = row.get("id");
+                let kind: String = row.get("location_kind");
+                let location_id: String = row.get("location_id");
                 let page: u32 = row.get("page");
+                let Some(location) = EmpresiteLocation::from_kind_id(&kind, &location_id) else {
+                    tx.rollback().await?;
+                    return Ok(None);
+                };
                 sqlx::query(
                     r#"
-                        UPDATE empresite_pages 
-                        SET in_progress = 1, started_at = NOW() 
-                        WHERE id = ?                        
+                        UPDATE empresite_tasks
+                        SET in_progress = 1, started_at = NOW()
+                        WHERE id = ?
                     "#,
                 )
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
                 tx.commit().await?;
-                Some((id, page))
+                Some((id, location, page))
             }
             None => {
                 tx.rollback().await?;
@@ -808,22 +827,22 @@ impl Persistence for MysqlPersistence {
         })
     }
 
-    async fn release_empresite_page(
+    async fn release_empresite_task(
         &self,
-        page_id: i64,
+        task_id: i64,
         completed: Option<(i32, i32)>,
     ) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
-                "UPDATE empresite_pages SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? WHERE id = ?",
+                "UPDATE empresite_tasks SET in_progress = 0, started_at = NOW(), items = ?, duplicated = ? WHERE id = ?",
             )
             .bind(items)
             .bind(duplicated),
             None => sqlx::query(
-                "UPDATE empresite_pages SET in_progress = 0, started_at = NOW() WHERE id = ?",
+                "UPDATE empresite_tasks SET in_progress = 0, started_at = NOW() WHERE id = ?",
             ),
         }
-        .bind(page_id)
+        .bind(task_id)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)

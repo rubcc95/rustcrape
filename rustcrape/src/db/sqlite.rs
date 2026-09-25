@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use crate::storage::{Persistence, WriteOutcome};
 use crate::types::{
-    Coincidence, CoincidenceColumn, CoincidencePage, CoincidenceRecord, GMapsConfig, ProjectStats,
-    SortOrder,
+    Coincidence, CoincidenceColumn, CoincidencePage, CoincidenceRecord, EmpresiteLocation,
+    GMapsConfig, ProjectStats, SortOrder,
 };
 use crate::verboser::Verboser;
 use anyhow::Result;
@@ -120,20 +120,29 @@ impl SqlitePersistence {
 
         self.ensure_config_columns(verboser).await?;
 
-        verboser.debug("SQLite: ensuring table 'empresite_pages'");
+        verboser.debug("SQLite: ensuring table 'empresite_tasks'");
         sqlx::raw_sql(
-            "CREATE TABLE IF NOT EXISTS empresite_pages (
+            "CREATE TABLE IF NOT EXISTS empresite_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                location_kind TEXT NOT NULL,
+                location_id TEXT NOT NULL,
                 page INTEGER NOT NULL,
                 in_progress INTEGER NOT NULL DEFAULT 0,
                 items INTEGER DEFAULT NULL,
                 duplicated INTEGER DEFAULT NULL,
                 started_at TEXT DEFAULT NULL,
-                UNIQUE (page)
+                UNIQUE (location_kind, location_id, page)
             )",
         )
         .execute(&self.pool)
         .await?;
+
+        // Migracion: versiones antiguas usaban `empresite_pages` (solo pagina).
+        // El estado geografico no se habia liberado a produccion, asi que se
+        // descarta la cola antigua en lugar de convertirla.
+        sqlx::query("DROP TABLE IF EXISTS empresite_pages")
+            .execute(&self.pool)
+            .await?;
 
         self.ensure_coincidence_columns(verboser).await?;
 
@@ -302,7 +311,7 @@ impl Persistence for SqlitePersistence {
         .fetch_one(&self.pool)
         .await?;
         let pages = sqlx::query(
-            "SELECT COUNT(*) AS total, COALESCE(SUM(items IS NOT NULL), 0) AS done FROM empresite_pages",
+            "SELECT COUNT(*) AS total, COALESCE(SUM(items IS NOT NULL), 0) AS done FROM empresite_tasks",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -489,28 +498,33 @@ impl Persistence for SqlitePersistence {
         Ok(())
     }
 
-    async fn has_empresite_pages(&self) -> Result<bool> {
-        Ok(sqlx::query("SELECT 1 FROM empresite_pages LIMIT 1")
+    async fn has_empresite_tasks(&self) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM empresite_tasks LIMIT 1")
             .fetch_optional(&self.pool)
             .await?
             .is_some())
     }
 
-    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
-        sqlx::query("INSERT OR IGNORE INTO empresite_pages (page) VALUES (?)")
-            .bind(page as i64)
-            .execute(&self.pool)
-            .await?;
+    async fn insert_empresite_task(&self, location: &EmpresiteLocation, page: u32) -> Result<()> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO empresite_tasks (location_kind, location_id, page) VALUES (?, ?, ?)",
+        )
+        .bind(location.kind())
+        .bind(location.location_id())
+        .bind(page as i64)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+    async fn claim_empresite_task(&self) -> Result<Option<(i64, EmpresiteLocation, u32)>> {
         let row = sqlx::query(
             r#"
-                SELECT id, PAGE 
-                FROM empresite_pages
+                SELECT id, location_kind, location_id, page
+                FROM empresite_tasks
                 WHERE (in_progress = 0 OR started_at < datetime('now', '-2 hours'))
-                    AND items IS NULL          
+                    AND items IS NULL
+                ORDER BY id
                 LIMIT 1
         "#,
         )
@@ -520,40 +534,45 @@ impl Persistence for SqlitePersistence {
         Ok(match row {
             Some(row) => {
                 let id: i64 = row.get("id");
+                let kind: String = row.get("location_kind");
+                let location_id: String = row.get("location_id");
                 let page: u32 = row.get("page");
+                let Some(location) = EmpresiteLocation::from_kind_id(&kind, &location_id) else {
+                    return Ok(None);
+                };
                 sqlx::query(
                     r#"
-                        UPDATE empresite_pages 
+                        UPDATE empresite_tasks
                         SET in_progress = 1, started_at = datetime('now')
-                        WHERE id = ?                        
+                        WHERE id = ?
                     "#,
                 )
                 .bind(id)
                 .execute(&self.pool)
                 .await?;
 
-                Some((id, page))
+                Some((id, location, page))
             }
             None => None,
         })
     }
 
-    async fn release_empresite_page(
+    async fn release_empresite_task(
         &self,
-        page_id: i64,
+        task_id: i64,
         completed: Option<(i32, i32)>,
     ) -> Result<bool> {
         let result = match completed {
             Some((items, duplicated)) => sqlx::query(
-                "UPDATE empresite_pages SET in_progress = 0, started_at = datetime('now'), items = ?, duplicated = ? WHERE id = ?",
+                "UPDATE empresite_tasks SET in_progress = 0, started_at = datetime('now'), items = ?, duplicated = ? WHERE id = ?",
             )
             .bind(items)
             .bind(duplicated),
             None => sqlx::query(
-                "UPDATE empresite_pages SET in_progress = 0, started_at = datetime('now') WHERE id = ?",
+                "UPDATE empresite_tasks SET in_progress = 0, started_at = datetime('now') WHERE id = ?",
             ),
         }
-        .bind(page_id)
+        .bind(task_id)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)

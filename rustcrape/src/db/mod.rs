@@ -2,7 +2,10 @@ pub mod mysql;
 pub mod sqlite;
 
 use crate::storage::{Persistence, WriteOutcome};
-use crate::types::{Coincidence, CoincidenceColumn, CoincidencePage, DbConfig, GMapsConfig, ProjectStats, SortOrder};
+use crate::types::{
+    Coincidence, CoincidenceColumn, CoincidencePage, DbConfig, EmpresiteLocation, GMapsConfig,
+    ProjectStats, SortOrder,
+};
 use crate::verboser::Verboser;
 use anyhow::Result;
 
@@ -109,35 +112,35 @@ impl Persistence for PersistenceKind {
         }
     }
 
-    async fn has_empresite_pages(&self) -> Result<bool> {
+    async fn has_empresite_tasks(&self) -> Result<bool> {
         match self {
-            PersistenceKind::Sqlite(p) => p.has_empresite_pages().await,
-            PersistenceKind::Mysql(p) => p.has_empresite_pages().await,
+            PersistenceKind::Sqlite(p) => p.has_empresite_tasks().await,
+            PersistenceKind::Mysql(p) => p.has_empresite_tasks().await,
         }
     }
 
-    async fn insert_empresite_page(&self, page: u32) -> Result<()> {
+    async fn insert_empresite_task(&self, location: &EmpresiteLocation, page: u32) -> Result<()> {
         match self {
-            PersistenceKind::Sqlite(p) => p.insert_empresite_page(page).await,
-            PersistenceKind::Mysql(p) => p.insert_empresite_page(page).await,
+            PersistenceKind::Sqlite(p) => p.insert_empresite_task(location, page).await,
+            PersistenceKind::Mysql(p) => p.insert_empresite_task(location, page).await,
         }
     }
 
-    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>> {
+    async fn claim_empresite_task(&self) -> Result<Option<(i64, EmpresiteLocation, u32)>> {
         match self {
-            PersistenceKind::Sqlite(p) => p.claim_empresite_page().await,
-            PersistenceKind::Mysql(p) => p.claim_empresite_page().await,
+            PersistenceKind::Sqlite(p) => p.claim_empresite_task().await,
+            PersistenceKind::Mysql(p) => p.claim_empresite_task().await,
         }
     }
 
-    async fn release_empresite_page(
+    async fn release_empresite_task(
         &self,
-        page_id: i64,
+        task_id: i64,
         completed: Option<(i32, i32)>,
     ) -> Result<bool> {
         match self {
-            PersistenceKind::Sqlite(p) => p.release_empresite_page(page_id, completed).await,
-            PersistenceKind::Mysql(p) => p.release_empresite_page(page_id, completed).await,
+            PersistenceKind::Sqlite(p) => p.release_empresite_task(task_id, completed).await,
+            PersistenceKind::Mysql(p) => p.release_empresite_task(task_id, completed).await,
         }
     }
 }

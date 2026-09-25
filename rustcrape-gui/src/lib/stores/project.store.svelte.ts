@@ -57,38 +57,56 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
     incorporation_date: null,
     legal_form: null,
     location_mode: "none",
-    locality_id: "",
-    province: null,
+    location_provinces: [],
+    location_localities: {},
   };
 }
 
-/** Compone el filtro geográfico a partir del modo y los campos del formulario.
- *  Provincia y localidad son excluyentes: el modo decide cuál viaja. */
-function buildLocationFilter(ef: EmpresiteFilters): EmpresiteLocation | null {
-  if (ef.location_mode === "locality") {
-    if (!ef.province || ef.locality_id === "") return null;
-    return { locality: { id: ef.locality_id } };
+/** Expande la selección del formulario a la lista de filtros geográficos.
+ *  Por cada provincia marcada: una entrada de provincia si no tiene
+ *  localidades marcadas, o una entrada por cada localidad si las tiene. */
+function buildLocationFilters(ef: EmpresiteFilters): EmpresiteLocation[] {
+  if (ef.location_mode === "none") return [];
+  const filters: EmpresiteLocation[] = [];
+  for (const province of ef.location_provinces) {
+    const towns = ef.location_localities[province] ?? [];
+    if (towns.length === 0) {
+      filters.push({ province });
+    } else {
+      for (const id of towns) filters.push({ locality: { id } });
+    }
   }
-  if (ef.location_mode === "province" && ef.province) {
-    return { province: ef.province };
-  }
-  return null;
+  return filters;
 }
 
-/** Modo del formulario a partir del filtro geográfico guardado. */
-function locationModeFrom(loc: EmpresiteLocation | null): LocationMode {
-  if (!loc) return "none";
-  return "locality" in loc ? "locality" : "province";
+/** Modo del formulario a partir de los filtros guardados. */
+function locationModeFrom(filters: EmpresiteLocation[]): LocationMode {
+  if (filters.length === 0) return "none";
+  return filters.some((f) => "locality" in f) ? "locality" : "province";
 }
 
-/** Provincia asociada al filtro geográfico guardado (la use el modo que use). */
-function provinceFrom(loc: EmpresiteLocation | null): Province | null {
-  if (!loc) return null;
-  if ("locality" in loc) {
-    const slug = PROVINCE_SLUG_BY_TOWN[loc.locality.id];
-    return PROVINCES.find((p) => p.slug === slug)?.value ?? null;
+/** Reconstruye la selección del formulario desde los filtros guardados. */
+function selectionFrom(filters: EmpresiteLocation[]): {
+  provinces: Province[];
+  localities: Partial<Record<Province, string[]>>;
+} {
+  const provinces: Province[] = [];
+  const localities: Partial<Record<Province, string[]>> = {};
+  const addProvince = (p: Province) => {
+    if (!provinces.includes(p)) provinces.push(p);
+  };
+  for (const f of filters) {
+    if ("province" in f) {
+      addProvince(f.province);
+      continue;
+    }
+    const slug = PROVINCE_SLUG_BY_TOWN[f.locality.id];
+    const province = PROVINCES.find((p) => p.slug === slug)?.value;
+    if (!province) continue;
+    addProvince(province);
+    (localities[province] ??= []).push(f.locality.id);
   }
-  return loc.province;
+  return { provinces, localities };
 }
 
 function emptyStats(): IterationStats {
@@ -183,7 +201,7 @@ class ProjectStore {
           : null,
         incorporation_date: ef.incorporation_date,
         legal_form: ef.legal_form,
-        location_filter: buildLocationFilter(ef),
+        location_filters: buildLocationFilters(ef),
       },
       execution_mode: this.executionConfig.execution_mode,
       db,
@@ -240,12 +258,14 @@ class ProjectStore {
         employees_max: c.empresite.employees?.max ?? 100,
         incorporation_date: c.empresite.incorporation_date ?? null,
         legal_form: c.empresite.legal_form ?? null,
-        location_mode: locationModeFrom(c.empresite.location_filter),
-        locality_id:
-          c.empresite.location_filter && "locality" in c.empresite.location_filter
-            ? c.empresite.location_filter.locality.id
-            : "",
-        province: provinceFrom(c.empresite.location_filter),
+        location_mode: locationModeFrom(c.empresite.location_filters ?? []),
+        ...(() => {
+          const sel = selectionFrom(c.empresite.location_filters ?? []);
+          return {
+            location_provinces: sel.provinces,
+            location_localities: sel.localities,
+          };
+        })(),
       },
       use_mysql: useMysql,
       db_host: useMysql ? db.host : "localhost",

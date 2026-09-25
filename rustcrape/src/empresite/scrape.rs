@@ -8,7 +8,7 @@ use crate::empresite::config::{
 };
 use crate::scraper::ScrapeResult;
 use crate::storage::Persistence;
-use crate::types::{Coincidence, Config, EmpresiteConfig};
+use crate::types::{Coincidence, Config, EmpresiteConfig, EmpresiteLocation};
 use crate::utils::*;
 use crate::verboser::Verboser;
 
@@ -773,8 +773,13 @@ async fn scrape_detail(
 /// Genera la URL del listado para una pagina concreta anexando los filtros
 /// configurados. Si hay al menos un filtro se anade el flag `testfiltros=1`,
 /// que activa el modo filtrado del endpoint.
-fn listing_url(activity: &str, page: u32, cfg: &EmpresiteConfig) -> String {
-    let location = location_path(cfg.location_filter.as_ref());
+fn listing_url(
+    activity: &str,
+    location: &EmpresiteLocation,
+    page: u32,
+    cfg: &EmpresiteConfig,
+) -> String {
+    let location = location_path(Some(location));
     let base = if page <= 1 {
         format!("https://empresite.eleconomista.es/Actividad/{activity}/{location}")
     } else {
@@ -817,7 +822,7 @@ pub async fn scrape_internal<P: Persistence>(
         }
         _ => requested.clone(),
     };
-    let mut url = listing_url(&activity, params.page, &config.empresite);
+    let mut url = listing_url(&activity, &params.location, params.page, &config.empresite);
     verboser.debug(&format!(
         "Empresite listing: activity slug='{activity}', page={}, url={url}",
         params.page
@@ -859,13 +864,13 @@ pub async fn scrape_internal<P: Persistence>(
         &requested,
         &mut activity,
         params.page,
-        config.empresite.location_filter.is_some(),
+        true,
         persist,
         verboser,
     )
     .await?
     {
-        url = listing_url(&activity, params.page, &config.empresite);
+        url = listing_url(&activity, &params.location, params.page, &config.empresite);
         verboser.debug(&format!(
             "Empresite listing: reloading page {} with canonical activity -> {url}",
             params.page
@@ -1005,13 +1010,16 @@ mod tests {
 
     #[test]
     fn test_listing_url_no_filters() {
+        use crate::types::{EmpresiteLocation, Province};
+
         let cfg = EmpresiteConfig::default();
+        let location = EmpresiteLocation::Province(Province::Madrid);
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 1, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/"
         );
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 3, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 3, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/PgNum-3/"
         );
     }
@@ -1020,16 +1028,14 @@ mod tests {
     fn test_listing_url_with_province() {
         use crate::types::{EmpresiteLocation, Province};
 
-        let cfg = EmpresiteConfig {
-            location_filter: Some(EmpresiteLocation::Province(Province::Madrid)),
-            ..Default::default()
-        };
+        let cfg = EmpresiteConfig::default();
+        let location = EmpresiteLocation::Province(Province::Madrid);
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 1, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/"
         );
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/"
         );
     }
@@ -1038,25 +1044,23 @@ mod tests {
     fn test_listing_url_with_locality() {
         use crate::types::EmpresiteLocation;
 
-        let cfg = EmpresiteConfig {
-            location_filter: Some(EmpresiteLocation::Locality {
-                id: "OVIEDO-ASTURIAS".to_string(),
-            }),
-            ..Default::default()
+        let cfg = EmpresiteConfig::default();
+        let location = EmpresiteLocation::Locality {
+            id: "OVIEDO-ASTURIAS".to_string(),
         };
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 1, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 1, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/OVIEDO-ASTURIAS/"
         );
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 2, &cfg),
+            listing_url("BARCOS-DE-VELA", &location, 2, &cfg),
             "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/localidad/OVIEDO-ASTURIAS/PgNum-2/"
         );
     }
 
     #[test]
     fn test_listing_url_with_filters() {
-        use crate::types::{CompanySize, EmployeeRange, IncorporationDate, LegalForm};
+        use crate::types::{CompanySize, EmployeeRange, EmpresiteLocation, IncorporationDate, LegalForm, Province};
 
         let cfg = EmpresiteConfig {
             web: true,
@@ -1070,10 +1074,11 @@ mod tests {
             legal_form: Some(LegalForm::LimitedLiabilityCompany),
             ..Default::default()
         };
+        let location = EmpresiteLocation::Province(Province::Madrid);
 
         assert_eq!(
-            listing_url("BARCOS-DE-VELA", 2, &cfg),
-            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/PgNum-2/\
+            listing_url("BARCOS-DE-VELA", &location, 2, &cfg),
+            "https://empresite.eleconomista.es/Actividad/BARCOS-DE-VELA/provincia/MADRID/PgNum-2/\
              ?testfiltros=1&emp_web=true&emp_telefono=true&emp_email=true&municipio=true&\
              numSucursales=true&emp_ventas_number=corporativas&emp_empleados_number=10-50&\
              fecha_constitucion=1a&emp_formajuridica=B"

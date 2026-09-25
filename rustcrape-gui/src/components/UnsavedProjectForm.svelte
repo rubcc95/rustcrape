@@ -15,9 +15,66 @@
   import CheckboxNumber from "./CheckboxNumber.svelte";
   import ExecutionConfig from "./ExecutionPanel.svelte";
 
-  function townsForProvince(province: Province | null) {
+  const filters = $derived(projectStore.projectDraft.empresite_filters);
+
+  let provinceQuery = $state("");
+  let townQuery = $state("");
+
+  const filteredProvinces = $derived(
+    PROVINCES.filter((p) =>
+      p.label.toLowerCase().includes(provinceQuery.trim().toLowerCase())
+    )
+  );
+
+  function townsForProvince(province: Province) {
     const slug = PROVINCES.find((p) => p.value === province)?.slug;
     return slug ? (TOWNS_BY_PROVINCE[slug] ?? []) : [];
+  }
+
+  /** Provincias marcadas que tienen localidades disponibles (según datos). */
+  const provincesWithTowns = $derived(
+    filters.location_provinces.filter((p) => townsForProvince(p).length > 0)
+  );
+
+  function filteredTowns(province: Province) {
+    const q = townQuery.trim().toLowerCase();
+    return townsForProvince(province).filter(
+      (t) => q === "" || t.name.toLowerCase().includes(q)
+    );
+  }
+
+  function isProvinceSelected(province: Province): boolean {
+    return filters.location_provinces.includes(province);
+  }
+
+  function toggleProvince(province: Province, checked: boolean): void {
+    if (checked) {
+      if (!filters.location_provinces.includes(province)) {
+        filters.location_provinces = [...filters.location_provinces, province];
+      }
+    } else {
+      filters.location_provinces = filters.location_provinces.filter(
+        (p) => p !== province
+      );
+      const next = { ...filters.location_localities };
+      delete next[province];
+      filters.location_localities = next;
+    }
+  }
+
+  function selectedTowns(province: Province): string[] {
+    return filters.location_localities[province] ?? [];
+  }
+
+  function toggleTown(province: Province, id: string, checked: boolean): void {
+    const current = selectedTowns(province);
+    const next = checked
+      ? [...current, id]
+      : current.filter((t) => t !== id);
+    filters.location_localities = {
+      ...filters.location_localities,
+      [province]: next,
+    };
   }
 
   function onCompanySizeChange(e: Event): void {
@@ -38,29 +95,13 @@
       value === "" ? null : (value as LegalForm);
   }
 
-  function onProvinceChange(e: Event): void {
-    const value = (e.currentTarget as HTMLSelectElement).value;
-    const filters = projectStore.projectDraft.empresite_filters;
-    filters.province = value === "" ? null : (value as Province);
-    filters.locality_id = "";
-  }
-
-  function onLocalityChange(e: Event): void {
-    projectStore.projectDraft.empresite_filters.locality_id = (
-      e.currentTarget as HTMLSelectElement
-    ).value;
-  }
-
   function onLocationModeChange(e: Event): void {
     const value = (e.currentTarget as HTMLSelectElement)
       .value as LocationMode;
-    const filters = projectStore.projectDraft.empresite_filters;
     filters.location_mode = value;
     if (value === "none") {
-      filters.province = null;
-      filters.locality_id = "";
-    } else if (value === "province") {
-      filters.locality_id = "";
+      filters.location_provinces = [];
+      filters.location_localities = {};
     }
   }
 </script>
@@ -391,59 +432,81 @@
           <label for="emp-location-mode">Ubicación</label>
           <select
             id="emp-location-mode"
-            value={projectStore.projectDraft.empresite_filters.location_mode}
+            value={filters.location_mode}
             onchange={onLocationModeChange}
           >
             <option value="none">Sin filtro</option>
-            <option value="province">Provincia</option>
-            <option value="locality">Localidad</option>
+            <option value="province">Provincias</option>
+            <option value="locality">Provincias y localidades</option>
           </select>
         </div>
 
-        {#if projectStore.projectDraft.empresite_filters.location_mode === "province"}
+        {#if filters.location_mode !== "none"}
           <div class="field">
-            <label for="emp-province">Provincia</label>
-            <select
-              id="emp-province"
-              value={projectStore.projectDraft.empresite_filters.province ?? ""}
-              onchange={onProvinceChange}
-            >
-              <option value="">Todas</option>
-              {#each PROVINCES as province (province.value)}
-                <option value={province.value}>{province.label}</option>
-              {/each}
-            </select>
+            <label for="emp-province-search">Buscar provincia</label>
+            <input
+              type="text"
+              id="emp-province-search"
+              bind:value={provinceQuery}
+              placeholder="Madrid, Málaga..."
+            />
           </div>
-        {:else if projectStore.projectDraft.empresite_filters.location_mode === "locality"}
-          <div class="field">
-            <label for="emp-locality-province">Provincia</label>
-            <select
-              id="emp-locality-province"
-              value={projectStore.projectDraft.empresite_filters.province ?? ""}
-              onchange={onProvinceChange}
-            >
-              <option value="">Selecciona provincia</option>
-              {#each PROVINCES as province (province.value)}
-                <option value={province.value}>{province.label}</option>
-              {/each}
-            </select>
+          <div class="checkbox-list">
+            {#each filteredProvinces as province (province.value)}
+              <label class="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={isProvinceSelected(province.value)}
+                  onchange={(e) =>
+                    toggleProvince(
+                      province.value,
+                      (e.currentTarget as HTMLInputElement).checked
+                    )}
+                />
+                {province.label}
+              </label>
+            {/each}
           </div>
+        {/if}
+
+        {#if filters.location_mode === "locality" && provincesWithTowns.length > 0}
           <div class="field">
-            <label for="emp-locality-id">Localidad</label>
-            {#if projectStore.projectDraft.empresite_filters.province}
-              <select
-                id="emp-locality-id"
-                value={projectStore.projectDraft.empresite_filters.locality_id}
-                onchange={onLocalityChange}
-              >
-                <option value="">Selecciona localidad</option>
-                {#each townsForProvince(projectStore.projectDraft.empresite_filters.province) as town (town.id)}
-                  <option value={town.id}>{town.name}</option>
-                {/each}
-              </select>
-            {:else}
-              <p class="hint">Selecciona una provincia primero.</p>
-            {/if}
+            <label for="emp-town-search">Buscar localidad</label>
+            <input
+              type="text"
+              id="emp-town-search"
+              bind:value={townQuery}
+              placeholder="Arona, Oviedo..."
+            />
+          </div>
+          <div class="town-groups">
+            {#each provincesWithTowns as province (province)}
+              <div class="town-group">
+                <p class="town-group-title">
+                  {PROVINCES.find((p) => p.value === province)?.label ?? province}
+                  <span class="hint">
+                    (sin marcar ninguna = toda la provincia)
+                  </span>
+                </p>
+                <div class="checkbox-list">
+                  {#each filteredTowns(province) as town (town.id)}
+                    <label class="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedTowns(province).includes(town.id)}
+                        onchange={(e) =>
+                          toggleTown(
+                            province,
+                            town.id,
+                            (e.currentTarget as HTMLInputElement).checked
+                          )}
+                      />
+                      {town.name}
+                    </label>
+                  {/each}
+                </div>
+              </div>
+            {/each}
           </div>
         {/if}
 
@@ -615,5 +678,45 @@
   .check-track.checked .check-mark {
     opacity: 1;
     transform: scale(1);
+  }
+
+  .checkbox-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 0.25rem 1rem;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    border: 1px solid var(--border, #2a3a5c);
+    border-radius: 6px;
+    background: var(--bg);
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .checkbox-row input {
+    cursor: pointer;
+  }
+
+  .town-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .town-group-title {
+    margin: 0 0 0.35rem;
+    font-weight: 600;
+  }
+
+  .town-group-title .hint {
+    font-weight: 400;
+    font-size: 0.8rem;
   }
 </style>

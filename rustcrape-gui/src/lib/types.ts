@@ -215,7 +215,7 @@ export const PROVINCE_SLUG_BY_TOWN: Record<string, string> = (() => {
   return map;
 })();
 
-/** Filtro geográfico de Empresite: provincia o localidad (excluyentes). */
+/** Filtro geográfico de Empresite: provincia entera o localidad concreta. */
 export type EmpresiteLocation =
   | { province: Province }
   | { locality: { id: string } };
@@ -243,13 +243,15 @@ export interface EmpresiteConfig {
   employees: EmployeeRange | null;
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
-  location_filter: EmpresiteLocation | null;
+  location_filters: EmpresiteLocation[];
 }
 
 /** Modo del filtro geográfico en el estado del formulario. */
 export type LocationMode = "none" | "province" | "locality";
 
-/** Filtros de Empresite en el estado del formulario (rango con bandera). */
+/** Filtros de Empresite en el estado del formulario (rango con bandera).
+ *  La ubicación es multi-selección: provincias marcadas y, opcionalmente,
+ *  localidades concretas dentro de cada una. */
 export interface EmpresiteFilters {
   web: boolean;
   phone: boolean;
@@ -263,8 +265,9 @@ export interface EmpresiteFilters {
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
   location_mode: LocationMode;
-  locality_id: string;
-  province: Province | null;
+  location_provinces: Province[];
+  /** Localidades marcadas por provincia (valor interno de la provincia). */
+  location_localities: Partial<Record<Province, string[]>>;
 }
 
 export type DbConfig =

@@ -8,23 +8,26 @@ use crate::types::EmpresiteLocation;
 /// `/Actividad/{actividad}/provincia/{PROV}/PgNum-N/`.
 pub fn location_path(location: Option<&EmpresiteLocation>) -> String {
     match location {
-        Some(EmpresiteLocation::Province(province)) => {
-            format!("provincia/{}/", province.query_value())
-        }
-        Some(EmpresiteLocation::Locality { id }) => format!("localidad/{id}/"),
+        Some(location) => format!("{}{}/", location_prefix(location), location.location_id()),
         None => String::new(),
     }
 }
 
+/// Prefijo del segmento de ubicacion (`provincia/` o `localidad/`).
+pub fn location_prefix(location: &EmpresiteLocation) -> &'static str {
+    match location {
+        EmpresiteLocation::Province(_) => "provincia/",
+        EmpresiteLocation::Locality { .. } => "localidad/",
+    }
+}
 
-
-/// Parametros de una tarea de Empresite: el indice de pagina a recorrer.
-#[derive(Debug, Clone, Copy, Serialize)]
+/// Parametros de una tarea de Empresite: la ubicacion a recorrer y el indice
+/// de pagina dentro de ella. La ubicacion viaja con la tarea para que la cola
+/// persistente recuerde en que provincia/localidad se estaba buscando.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EmpresiteParams {
+    pub location: EmpresiteLocation,
     pub page: u32,
-    // pub headless: bool,
-    // pub browser_path: Option<&'a Path>,
-    // pub profile_dir: Option<&'a Path>,
 }
 
 /// Convierte el texto de la actividad en un slug apto para la URL de Empresite:
@@ -320,5 +323,31 @@ mod tests {
             id: "BARCELONA".to_string(),
         };
         assert_eq!(location_path(Some(&location)), "localidad/BARCELONA/");
+    }
+
+    #[test]
+    fn test_location_kind_id_roundtrip() {
+        use crate::types::{EmpresiteLocation, Province};
+
+        let province = EmpresiteLocation::Province(Province::SantaCruzDeTenerife);
+        assert_eq!(province.kind(), "province");
+        assert_eq!(province.location_id(), "SANTA-CRUZ-TENERIFE");
+        assert_eq!(
+            EmpresiteLocation::from_kind_id("province", "SANTA-CRUZ-TENERIFE"),
+            Some(province)
+        );
+
+        let locality = EmpresiteLocation::Locality {
+            id: "ARONA-SANTA-CRUZ-TENERIFE".to_string(),
+        };
+        assert_eq!(locality.kind(), "locality");
+        assert_eq!(locality.location_id(), "ARONA-SANTA-CRUZ-TENERIFE");
+        assert_eq!(
+            EmpresiteLocation::from_kind_id("locality", "ARONA-SANTA-CRUZ-TENERIFE"),
+            Some(locality)
+        );
+
+        assert_eq!(EmpresiteLocation::from_kind_id("desconocido", "X"), None);
+        assert_eq!(EmpresiteLocation::from_kind_id("province", "NO-EXISTE"), None);
     }
 }

@@ -43,26 +43,34 @@ impl Scraper for EmpresiteHttpScraper {
 
     async fn seed(
         &self,
-        _: &Config,
+        config: &Config,
         persist: &impl Persistence,
         verboser: &dyn Verboser,
     ) -> Result<()> {
-        if persist.has_empresite_pages().await? {
-            verboser.debug("Empresite HTTP seed: pages already present, nothing to do");
-        } else {
-            verboser.debug("Empresite HTTP seed: inserting first listing page (PgNum-1)");
-            persist.insert_empresite_page(1).await?;
+        if persist.has_empresite_tasks().await? {
+            verboser.debug("Empresite HTTP seed: tasks already present, nothing to do");
+            return Ok(());
+        }
+        let locations = &config.empresite.location_filters;
+        if locations.is_empty() {
+            verboser.warn("Empresite HTTP seed: no locations configured, nothing to queue");
+            return Ok(());
+        }
+        verboser.debug(&format!(
+            "Empresite HTTP seed: queueing first page for {} location(s)",
+            locations.len()
+        ));
+        for location in locations {
+            persist.insert_empresite_task(location, 1).await?;
         }
         Ok(())
     }
 
     async fn claim(&self, persist: &impl Persistence) -> Result<Option<(i64, Self::Params)>> {
-        Ok(persist.claim_empresite_page().await?.map(|(id, page)| {
-            (
-                id,
-                EmpresiteParams { page },
-            )
-        }))
+        Ok(persist
+            .claim_empresite_task()
+            .await?
+            .map(|(id, location, page)| (id, EmpresiteParams { location, page })))
     }
 
     async fn release(
@@ -71,7 +79,7 @@ impl Scraper for EmpresiteHttpScraper {
         id: i64,
         done: Option<(i32, i32)>,
     ) -> Result<bool> {
-        persist.release_empresite_page(id, done).await
+        persist.release_empresite_task(id, done).await
     }
 
     async fn advance(
@@ -82,7 +90,7 @@ impl Scraper for EmpresiteHttpScraper {
     ) -> Result<()> {
         if has_more {
             persist
-                .insert_empresite_page(params.page.saturating_add(1))
+                .insert_empresite_task(&params.location, params.page.saturating_add(1))
                 .await?;
         }
         Ok(())

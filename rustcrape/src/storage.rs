@@ -1,4 +1,6 @@
-use crate::types::{Coincidence, CoincidenceColumn, CoincidencePage, ProjectStats, SortOrder};
+use crate::types::{
+    Coincidence, CoincidenceColumn, CoincidencePage, EmpresiteLocation, ProjectStats, SortOrder,
+};
 use anyhow::Result;
 
 /// Resultado de persistir un lote de coincidencias: cuantas se insertaron
@@ -44,14 +46,14 @@ pub trait Persistence: Send + Sync {
     /// Guarda el slug canonico que Empresite asigno al slug solicitado.
     async fn set_empresite_activity(&self, source: &str, canonical: &str) -> Result<()>;
 
-    // --- Empresite: cola dinamica de paginas ---
-    async fn has_empresite_pages(&self) -> Result<bool>;
-    async fn insert_empresite_page(&self, page: u32) -> Result<()>;
-    //async fn read_empresite_page(&self) -> Result<Option<(i64, u32)>>;
-    async fn claim_empresite_page(&self) -> Result<Option<(i64, u32)>>;
-    async fn release_empresite_page(
+    // --- Empresite: cola dinamica de tareas (ubicacion + pagina) ---
+    async fn has_empresite_tasks(&self) -> Result<bool>;
+    async fn insert_empresite_task(&self, location: &EmpresiteLocation, page: u32) -> Result<()>;
+    /// Reclama la siguiente tarea pendiente: `(id, ubicacion, pagina)`.
+    async fn claim_empresite_task(&self) -> Result<Option<(i64, EmpresiteLocation, u32)>>;
+    async fn release_empresite_task(
         &self,
-        page_id: i64,
+        task_id: i64,
         completed: Option<(i32, i32)>,
     ) -> Result<bool>;
 }
