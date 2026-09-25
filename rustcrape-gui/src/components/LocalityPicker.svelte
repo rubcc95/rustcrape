@@ -21,9 +21,7 @@
 
   const matches = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    return towns
-      .filter((t) => q === "" || t.name.toLowerCase().includes(q))
-      .slice(0, 8);
+    return towns.filter((t) => q === "" || t.name.toLowerCase().includes(q));
   });
 
   const byId = $derived(new Map(towns.map((t) => [t.id, t.name])));
@@ -50,7 +48,6 @@
       onchange([...selected, id]);
     }
     // El dropdown se mantiene abierto para encadenar selecciones.
-    query = "";
   }
 
   function toggleActive(): void {

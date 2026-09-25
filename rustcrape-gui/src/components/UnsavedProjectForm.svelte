@@ -29,7 +29,7 @@
     const q = provinceQuery.trim().toLowerCase();
     return PROVINCES.filter(
       (p) => q === "" || p.label.toLowerCase().includes(q)
-    ).slice(0, 8);
+    );
   });
 
   // Al cambiar la lista de coincidencias, la entrada destacada vuelve arriba.
@@ -63,7 +63,6 @@
       filters.location_provinces = [...filters.location_provinces, province];
     }
     // El dropdown se mantiene abierto para encadenar selecciones.
-    provinceQuery = "";
   }
 
   function toggleActiveProvince(): void {
