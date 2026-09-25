@@ -15,11 +15,12 @@
 
   let query = $state("");
   let open = $state(false);
+  let root = $state<HTMLDivElement | null>(null);
 
   const matches = $derived.by(() => {
     const q = query.trim().toLowerCase();
     return towns
-      .filter((t) => !selected.includes(t.id) && (q === "" || t.name.toLowerCase().includes(q)))
+      .filter((t) => q === "" || t.name.toLowerCase().includes(q))
       .slice(0, 8);
   });
 
@@ -31,8 +32,24 @@
     open = false;
   }
 
+  function toggle(id: string): void {
+    if (selected.includes(id)) {
+      onchange(selected.filter((s) => s !== id));
+    } else {
+      onchange([...selected, id]);
+    }
+    // Con ratón el dropdown se mantiene abierto para encadenar selecciones.
+    query = "";
+  }
+
   function remove(id: string): void {
     onchange(selected.filter((s) => s !== id));
+  }
+
+  function closeIfOutside(e: FocusEvent): void {
+    const next = e.relatedTarget as Node | null;
+    if (!root || (next && root.contains(next))) return;
+    open = false;
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -45,7 +62,7 @@
   }
 </script>
 
-<div class="locality-picker">
+<div class="locality-picker" bind:this={root} onfocusout={closeIfOutside}>
   <div class="location-search">
     <input
       type="text"
@@ -61,15 +78,15 @@
       <ul class="dropdown">
         {#each matches as town (town.id)}
           <li>
-            <button
-              type="button"
-              onmousedown={(e) => {
-                e.preventDefault();
-                add(town.id);
-              }}
-            >
+            <label class="dropdown-row">
+              <input
+                type="checkbox"
+                checked={selected.includes(town.id)}
+                onmousedown={(e) => e.preventDefault()}
+                onchange={() => toggle(town.id)}
+              />
               {town.name}
-            </button>
+            </label>
           </li>
         {/each}
       </ul>
@@ -108,7 +125,7 @@
     position: relative;
   }
 
-  input {
+  input[type="text"] {
     width: 100%;
   }
 
@@ -129,20 +146,20 @@
     overflow-y: auto;
   }
 
-  .dropdown button {
-    display: block;
-    width: 100%;
+  .dropdown-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.45rem 0.7rem;
-    text-align: left;
-    background: none;
-    border: none;
-    color: inherit;
     cursor: pointer;
-    font: inherit;
   }
 
-  .dropdown button:hover {
+  .dropdown-row:hover {
     background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+  }
+
+  .dropdown-row input {
+    cursor: pointer;
   }
 
   .chips {

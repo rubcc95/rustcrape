@@ -19,13 +19,14 @@
 
   let provinceQuery = $state("");
   let provinceOpen = $state(false);
+  let provinceRoot = $state<HTMLDivElement | null>(null);
 
   const selectedProvinces = $derived(filters.location_provinces);
 
   const provinceMatches = $derived.by(() => {
     const q = provinceQuery.trim().toLowerCase();
     return PROVINCES.filter(
-      (p) => !selectedProvinces.includes(p.value) && (q === "" || p.label.toLowerCase().includes(q))
+      (p) => q === "" || p.label.toLowerCase().includes(q)
     ).slice(0, 8);
   });
 
@@ -46,6 +47,16 @@
     provinceOpen = false;
   }
 
+  function toggleProvince(province: Province): void {
+    if (filters.location_provinces.includes(province)) {
+      removeProvince(province);
+    } else {
+      filters.location_provinces = [...filters.location_provinces, province];
+    }
+    // Con ratón el dropdown se mantiene abierto para encadenar selecciones.
+    provinceQuery = "";
+  }
+
   function removeProvince(province: Province): void {
     filters.location_provinces = filters.location_provinces.filter(
       (p) => p !== province
@@ -53,6 +64,12 @@
     const next = { ...filters.location_localities };
     delete next[province];
     filters.location_localities = next;
+  }
+
+  function closeProvincesIfOutside(e: FocusEvent): void {
+    const next = e.relatedTarget as Node | null;
+    if (!provinceRoot || (next && provinceRoot.contains(next))) return;
+    provinceOpen = false;
   }
 
   function onProvinceKeydown(e: KeyboardEvent): void {
@@ -405,7 +422,7 @@
           </select>
         </div>
 
-        <div class="field location-search">
+        <div class="field location-search" bind:this={provinceRoot} onfocusout={closeProvincesIfOutside}>
           <label for="emp-province-search">Provincia</label>
           <input
             type="text"
@@ -421,15 +438,15 @@
             <ul class="dropdown">
               {#each provinceMatches as province (province.value)}
                 <li>
-                  <button
-                    type="button"
-                    onmousedown={(e) => {
-                      e.preventDefault();
-                      addProvince(province.value);
-                    }}
-                  >
+                  <label class="dropdown-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedProvinces.includes(province.value)}
+                      onmousedown={(e) => e.preventDefault()}
+                      onchange={() => toggleProvince(province.value)}
+                    />
                     {province.label}
-                  </button>
+                  </label>
                 </li>
               {/each}
             </ul>
@@ -673,20 +690,20 @@
     overflow-y: auto;
   }
 
-  .dropdown button {
-    display: block;
-    width: 100%;
+  .dropdown-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.45rem 0.7rem;
-    text-align: left;
-    background: none;
-    border: none;
-    color: inherit;
     cursor: pointer;
-    font: inherit;
   }
 
-  .dropdown button:hover {
+  .dropdown-row:hover {
     background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+  }
+
+  .dropdown-row input {
+    cursor: pointer;
   }
 
   .chips {
