@@ -102,19 +102,19 @@ where
     v.debug("VPN: command finished, waiting for the public IP to change");
     let output = wait_until(
         || async {
-            let curr = public_ip(http).await;
-            let curr = match curr {
+            let curr = match public_ip(http).await {
                 Ok(res) => res,
                 Err(err) => {
-                    if err.is_request() || err.is_body() {
-                        v.debug(&format!("VPN probe: no connectivity yet, retrying: {err}"));
-                        return Ok(None);
-                    } else {
-                        return Err(err.into());
-                    }
+                    // Cualquier fallo de la sonda (connect, timeout, decode,
+                    // body...) significa que aun no hay conectividad estable:
+                    // la VPN puede estar reconectando o el kill-switch cortando
+                    // el trafico. Nunca debe abortar la rotacion ni propagarse
+                    // como error fatal; se sigue sondeando hasta el timeout.
+                    v.debug(&format!("VPN probe: no connectivity yet, retrying: {err}"));
+                    return Ok(None);
                 }
             };
-            Ok(if &curr == &ip { None } else { Some(curr) })
+            Ok(if curr == ip { None } else { Some(curr) })
         },
         Duration::from_millis(500),
         Duration::from_secs(60),

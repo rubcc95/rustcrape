@@ -12,6 +12,17 @@ use crate::verboser::Verboser;
 
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(3600);
 
+/// Tope del backoff entre reintentos consecutivos fallidos. El motor nunca se
+/// detiene por errores repetidos (puede estar horas sin red); solo espacia los
+/// intentos para no martillear cuando la red o la VPN estan caidas.
+const MAX_ERROR_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Backoff exponencial acotado: 1s, 2s, 4s, ... hasta `MAX_ERROR_BACKOFF`.
+fn error_backoff(consecutive_failures: u32) -> Duration {
+    let secs = 1u64 << consecutive_failures.min(6);
+    Duration::from_secs(secs.min(MAX_ERROR_BACKOFF.as_secs()))
+}
+
 pub async fn run_dispatch(mut config: Config, verboser: impl Verboser) {
     let db_kind = match &config.db {
         crate::types::DbConfig::Sqlite { path } => match path {
@@ -98,6 +109,7 @@ async fn run_target<S: Scraper>(
 
     let mut iteration: u32 = 0;
     let mut timestamps: Vec<Instant> = Vec::new();
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         if ctx.verboser().is_cancelled() {
@@ -208,6 +220,11 @@ async fn run_target<S: Scraper>(
                     Err(err) => {
                         ctx.verboser().error(&format!("Error writing coincidences: {err}"));
                         let _ = scraper.release(persist, task_id, None).await;
+                        consecutive_failures = consecutive_failures.saturating_add(1);
+                        let delay = error_backoff(consecutive_failures);
+                        if sleep_cancellable(delay, ctx.cancellation()).await.is_err() {
+                            break;
+                        }
                         iteration += 1;
                         continue;
                     }
@@ -234,10 +251,19 @@ async fn run_target<S: Scraper>(
                         result.has_more
                     ));
                 }
+                consecutive_failures = 0;
             }
             Err(err) => {
-                ctx.verboser().error(&format!("Error during scraping: {err}"));
+                consecutive_failures = consecutive_failures.saturating_add(1);
+                let delay = error_backoff(consecutive_failures);
+                ctx.verboser().error(&format!(
+                    "Error during scraping: {err}; reintentando en {delay:?} \
+                     (fallo consecutivo {consecutive_failures})"
+                ));
                 let _ = scraper.release(persist, task_id, None).await;
+                if sleep_cancellable(delay, ctx.cancellation()).await.is_err() {
+                    break;
+                }
                 iteration += 1;
                 continue;
             }
@@ -248,108 +274,6 @@ async fn run_target<S: Scraper>(
 
     ctx.verboser()
         .debug(&format!("Engine[{name}]: run_target finished after {iteration} iterations"));
-
-
-    let mut iteration: u32 = 0;
-    let mut timestamps: Vec<Instant> = Vec::new();
-
-    loop {
-        if ctx.verboser().is_cancelled() {
-            ctx.verboser().warn("Operation canceled by the user");
-            break;
-        }
-
-        if let Some(iterations) = scraper.iterations(config) {
-            if iterations.get() <= iteration {
-                ctx.verboser().finished();
-                break;
-            }
-        }
-
-        if let Some(rate_limit) = scraper.rate_limit(config) {
-            let now = Instant::now();
-            timestamps.retain(|t| now.duration_since(*t) < RATE_LIMIT_WINDOW);
-            if timestamps.len() >= rate_limit.get() as usize {
-                let oldest = timestamps[0];
-                let wait = RATE_LIMIT_WINDOW
-                    .checked_sub(now.duration_since(oldest))
-                    .unwrap_or_default();
-                ctx.verboser().rate_limit_wait(wait);
-                if sleep_cancellable(wait, ctx.cancellation()).await.is_err() {
-                    break;
-                }
-            }
-            timestamps.push(Instant::now());
-        }
-
-        if let Err(err) = ctx.vpn_tick().await {
-            ctx.verboser().error(&format!("Error rotating vpn: {err}"));
-        }
-
-        ctx.verboser().obtaining_task();
-
-        let claimed = match scraper.claim(persist).await {
-            Ok(claimed) => claimed,
-            Err(err) => {
-                ctx.verboser().error(&format!("Error claiming task: {err}"));
-                let _ = sleep_cancellable(Duration::from_secs(1), ctx.cancellation()).await;
-                continue;
-            }
-        };
-
-        let Some((task_id, params)) = claimed else {
-            ctx.verboser().finished();
-            break;
-        };
-
-        ctx.verboser().claimed_task(&scraper.describe(&params));
-
-        if ctx.verboser().is_cancelled() {
-            ctx.verboser().warn("Cancelado antes de abrir el navegador");
-            let _ = scraper.release(persist, task_id, None).await;
-            break;
-        }
-        let result = scraper.scrape(config, &params, ctx, persist).await;
-
-        match result {
-            Ok(result) => {
-                ctx.verboser().writing_coincidences(&result.coincidences);
-                let items = result.coincidences.len() as i32;
-                let outcome = match persist
-                    .write_coincidences(scraper.name(), result.coincidences)
-                    .await
-                {
-                    Ok(outcome) => outcome,
-                    Err(err) => {
-                        ctx.verboser().error(&format!("Error writing coincidences: {err}"));
-                        let _ = scraper.release(persist, task_id, None).await;
-                        iteration += 1;
-                        continue;
-                    }
-                };
-                ctx.verboser()
-                    .written_coincidences(outcome.inserted, outcome.inserted_with_phone);
-                let duplicated = items - outcome.inserted as i32;
-                scraper
-                    .release(persist, task_id, Some((items, duplicated)))
-                    .await
-                    .ok();
-                ctx.verboser().released_task();
-
-                if let Err(err) = scraper.advance(persist, &params, result.has_more).await {
-                    ctx.verboser().error(&format!("Error advancing queue: {err}"));
-                }
-            }
-            Err(err) => {
-                ctx.verboser().error(&format!("Error during scraping: {err}"));
-                let _ = scraper.release(persist, task_id, None).await;
-                iteration += 1;
-                continue;
-            }
-        }
-
-        iteration += 1;
-    }
 }
 
 #[cfg(test)]
