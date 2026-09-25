@@ -1,3 +1,5 @@
+import { TOWNS_BY_PROVINCE } from "./data/empresiteLocations";
+
 export type Route = "settings" | "project" | "execution" | "results";
 
 export type CoincidenceColumn =
@@ -136,66 +138,87 @@ export type Province =
   | "zamora"
   | "zaragoza";
 
-/** Provincias de Empresite con su etiqueta para el selector. */
-export const PROVINCES: { value: Province; label: string }[] = [
-  { value: "coruna", label: "A Coruña" },
-  { value: "alava", label: "Álava" },
-  { value: "albacete", label: "Albacete" },
-  { value: "alicante", label: "Alicante" },
-  { value: "almeria", label: "Almería" },
-  { value: "asturias", label: "Asturias" },
-  { value: "avila", label: "Ávila" },
-  { value: "badajoz", label: "Badajoz" },
-  { value: "baleares", label: "Baleares" },
-  { value: "barcelona", label: "Barcelona" },
-  { value: "burgos", label: "Burgos" },
-  { value: "caceres", label: "Cáceres" },
-  { value: "cadiz", label: "Cádiz" },
-  { value: "cantabria", label: "Cantabria" },
-  { value: "castellon", label: "Castellón" },
-  { value: "ceuta", label: "Ceuta" },
-  { value: "ciudad_real", label: "Ciudad Real" },
-  { value: "cordoba", label: "Córdoba" },
-  { value: "cuenca", label: "Cuenca" },
-  { value: "gerona", label: "Girona" },
-  { value: "granada", label: "Granada" },
-  { value: "guadalajara", label: "Guadalajara" },
-  { value: "guipuzcoa", label: "Guipúzcoa" },
-  { value: "huelva", label: "Huelva" },
-  { value: "huesca", label: "Huesca" },
-  { value: "jaen", label: "Jaén" },
-  { value: "leon", label: "León" },
-  { value: "lerida", label: "Lleida" },
-  { value: "lugo", label: "Lugo" },
-  { value: "madrid", label: "Madrid" },
-  { value: "malaga", label: "Málaga" },
-  { value: "melilla", label: "Melilla" },
-  { value: "murcia", label: "Murcia" },
-  { value: "navarra", label: "Navarra" },
-  { value: "orense", label: "Ourense" },
-  { value: "palencia", label: "Palencia" },
-  { value: "palmas", label: "Las Palmas" },
-  { value: "pontevedra", label: "Pontevedra" },
-  { value: "rioja", label: "La Rioja" },
-  { value: "salamanca", label: "Salamanca" },
-  { value: "santa_cruz_de_tenerife", label: "Santa Cruz de Tenerife" },
-  { value: "segovia", label: "Segovia" },
-  { value: "sevilla", label: "Sevilla" },
-  { value: "soria", label: "Soria" },
-  { value: "tarragona", label: "Tarragona" },
-  { value: "teruel", label: "Teruel" },
-  { value: "toledo", label: "Toledo" },
-  { value: "valencia", label: "Valencia" },
-  { value: "valladolid", label: "Valladolid" },
-  { value: "vizcaya", label: "Vizcaya" },
-  { value: "zamora", label: "Zamora" },
-  { value: "zaragoza", label: "Zaragoza" },
+/** Provincia de Empresite con el slug de URL (id del JSON) y la etiqueta. */
+export interface ProvinceOption {
+  value: Province;
+  slug: string;
+  label: string;
+}
+
+export const PROVINCES: ProvinceOption[] = [
+  { value: "coruna", slug: "CORUNA", label: "A Coruña" },
+  { value: "alava", slug: "ALAVA", label: "Álava" },
+  { value: "albacete", slug: "ALBACETE", label: "Albacete" },
+  { value: "alicante", slug: "ALICANTE", label: "Alicante" },
+  { value: "almeria", slug: "ALMERIA", label: "Almería" },
+  { value: "asturias", slug: "ASTURIAS", label: "Asturias" },
+  { value: "avila", slug: "AVILA", label: "Ávila" },
+  { value: "badajoz", slug: "BADAJOZ", label: "Badajoz" },
+  { value: "baleares", slug: "BALEARES", label: "Baleares" },
+  { value: "barcelona", slug: "BARCELONA", label: "Barcelona" },
+  { value: "burgos", slug: "BURGOS", label: "Burgos" },
+  { value: "caceres", slug: "CACERES", label: "Cáceres" },
+  { value: "cadiz", slug: "CADIZ", label: "Cádiz" },
+  { value: "cantabria", slug: "CANTABRIA", label: "Cantabria" },
+  { value: "castellon", slug: "CASTELLON", label: "Castellón" },
+  { value: "ceuta", slug: "CEUTA", label: "Ceuta" },
+  { value: "ciudad_real", slug: "CIUDAD-REAL", label: "Ciudad Real" },
+  { value: "cordoba", slug: "CORDOBA", label: "Córdoba" },
+  { value: "cuenca", slug: "CUENCA", label: "Cuenca" },
+  { value: "gerona", slug: "GERONA", label: "Girona" },
+  { value: "granada", slug: "GRANADA", label: "Granada" },
+  { value: "guadalajara", slug: "GUADALAJARA", label: "Guadalajara" },
+  { value: "guipuzcoa", slug: "GUIPUZCOA", label: "Guipúzcoa" },
+  { value: "huelva", slug: "HUELVA", label: "Huelva" },
+  { value: "huesca", slug: "HUESCA", label: "Huesca" },
+  { value: "jaen", slug: "JAEN", label: "Jaén" },
+  { value: "leon", slug: "LEON", label: "León" },
+  { value: "lerida", slug: "LERIDA", label: "Lleida" },
+  { value: "lugo", slug: "LUGO", label: "Lugo" },
+  { value: "madrid", slug: "MADRID", label: "Madrid" },
+  { value: "malaga", slug: "MALAGA", label: "Málaga" },
+  { value: "melilla", slug: "MELILLA", label: "Melilla" },
+  { value: "murcia", slug: "MURCIA", label: "Murcia" },
+  { value: "navarra", slug: "NAVARRA", label: "Navarra" },
+  { value: "orense", slug: "ORENSE", label: "Ourense" },
+  { value: "palencia", slug: "PALENCIA", label: "Palencia" },
+  { value: "palmas", slug: "PALMAS", label: "Las Palmas" },
+  { value: "pontevedra", slug: "PONTEVEDRA", label: "Pontevedra" },
+  { value: "rioja", slug: "RIOJA", label: "La Rioja" },
+  { value: "salamanca", slug: "SALAMANCA", label: "Salamanca" },
+  { value: "santa_cruz_de_tenerife", slug: "SANTA-CRUZ-TENERIFE", label: "Santa Cruz de Tenerife" },
+  { value: "segovia", slug: "SEGOVIA", label: "Segovia" },
+  { value: "sevilla", slug: "SEVILLA", label: "Sevilla" },
+  { value: "soria", slug: "SORIA", label: "Soria" },
+  { value: "tarragona", slug: "TARRAGONA", label: "Tarragona" },
+  { value: "teruel", slug: "TERUEL", label: "Teruel" },
+  { value: "toledo", slug: "TOLEDO", label: "Toledo" },
+  { value: "valencia", slug: "VALENCIA", label: "Valencia" },
+  { value: "valladolid", slug: "VALLADOLID", label: "Valladolid" },
+  { value: "vizcaya", slug: "VIZCAYA", label: "Vizcaya" },
+  { value: "zamora", slug: "ZAMORA", label: "Zamora" },
+  { value: "zaragoza", slug: "ZARAGOZA", label: "Zaragoza" },
 ];
+
+/** Slug de provincia (id del JSON) a partir del valor interno del selector. */
+export function provinceSlug(province: Province | null): string {
+  if (!province) return "";
+  return PROVINCES.find((p) => p.value === province)?.slug ?? "";
+}
+
+/** Indice inverso: id de localidad -> slug de su provincia. */
+export const PROVINCE_SLUG_BY_TOWN: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const [slug, towns] of Object.entries(TOWNS_BY_PROVINCE)) {
+    for (const town of towns) map[town.id] = slug;
+  }
+  return map;
+})();
 
 /** Filtro geográfico de Empresite: provincia o localidad (excluyentes). */
 export type EmpresiteLocation =
   | { province: Province }
-  | { locality: { name: string; province: Province } };
+  | { locality: { id: string } };
 
 export interface EmployeeRange {
   min: number;
@@ -240,7 +263,7 @@ export interface EmpresiteFilters {
   incorporation_date: IncorporationDate | null;
   legal_form: LegalForm | null;
   location_mode: LocationMode;
-  locality_name: string;
+  locality_id: string;
   province: Province | null;
 }
 

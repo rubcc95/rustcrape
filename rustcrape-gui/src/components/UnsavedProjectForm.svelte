@@ -11,8 +11,14 @@
     Province,
   } from "../lib/types";
   import { PROVINCES } from "../lib/types";
+  import { TOWNS_BY_PROVINCE } from "../lib/data/empresiteLocations";
   import CheckboxNumber from "./CheckboxNumber.svelte";
   import ExecutionConfig from "./ExecutionPanel.svelte";
+
+  function townsForProvince(province: Province | null) {
+    const slug = PROVINCES.find((p) => p.value === province)?.slug;
+    return slug ? (TOWNS_BY_PROVINCE[slug] ?? []) : [];
+  }
 
   function onCompanySizeChange(e: Event): void {
     const value = (e.currentTarget as HTMLSelectElement).value;
@@ -34,8 +40,15 @@
 
   function onProvinceChange(e: Event): void {
     const value = (e.currentTarget as HTMLSelectElement).value;
-    projectStore.projectDraft.empresite_filters.province =
-      value === "" ? null : (value as Province);
+    const filters = projectStore.projectDraft.empresite_filters;
+    filters.province = value === "" ? null : (value as Province);
+    filters.locality_id = "";
+  }
+
+  function onLocalityChange(e: Event): void {
+    projectStore.projectDraft.empresite_filters.locality_id = (
+      e.currentTarget as HTMLSelectElement
+    ).value;
   }
 
   function onLocationModeChange(e: Event): void {
@@ -45,9 +58,9 @@
     filters.location_mode = value;
     if (value === "none") {
       filters.province = null;
-      filters.locality_name = "";
+      filters.locality_id = "";
     } else if (value === "province") {
-      filters.locality_name = "";
+      filters.locality_id = "";
     }
   }
 </script>
@@ -416,13 +429,21 @@
             </select>
           </div>
           <div class="field">
-            <label for="emp-locality-name">Localidad</label>
-            <input
-              type="text"
-              id="emp-locality-name"
-              bind:value={projectStore.projectDraft.empresite_filters.locality_name}
-              placeholder="San Mateo de Gállego"
-            />
+            <label for="emp-locality-id">Localidad</label>
+            {#if projectStore.projectDraft.empresite_filters.province}
+              <select
+                id="emp-locality-id"
+                value={projectStore.projectDraft.empresite_filters.locality_id}
+                onchange={onLocalityChange}
+              >
+                <option value="">Selecciona localidad</option>
+                {#each townsForProvince(projectStore.projectDraft.empresite_filters.province) as town (town.id)}
+                  <option value={town.id}>{town.name}</option>
+                {/each}
+              </select>
+            {:else}
+              <p class="hint">Selecciona una provincia primero.</p>
+            {/if}
           </div>
         {/if}
 

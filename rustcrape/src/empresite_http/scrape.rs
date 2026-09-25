@@ -739,12 +739,11 @@ mod tests {
 
     #[test]
     fn test_listing_url_con_localidad() {
-        use crate::types::{EmpresiteLocation, Province};
+        use crate::types::EmpresiteLocation;
 
         let cfg = EmpresiteConfig {
             location_filter: Some(EmpresiteLocation::Locality {
-                name: "San Mateo de Gállego".to_string(),
-                province: Province::Zaragoza,
+                id: "SAN-MATEO-GALLEGO-ZARAGOZA".to_string(),
             }),
             ..Default::default()
         };

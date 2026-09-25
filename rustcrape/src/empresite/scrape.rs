@@ -1036,12 +1036,11 @@ mod tests {
 
     #[test]
     fn test_listing_url_with_locality() {
-        use crate::types::{EmpresiteLocation, Province};
+        use crate::types::EmpresiteLocation;
 
         let cfg = EmpresiteConfig {
             location_filter: Some(EmpresiteLocation::Locality {
-                name: "Oviedo".to_string(),
-                province: Province::Asturias,
+                id: "OVIEDO-ASTURIAS".to_string(),
             }),
             ..Default::default()
         };

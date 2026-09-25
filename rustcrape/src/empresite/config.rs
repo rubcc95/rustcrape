@@ -11,15 +11,12 @@ pub fn location_path(location: Option<&EmpresiteLocation>) -> String {
         Some(EmpresiteLocation::Province(province)) => {
             format!("provincia/{}/", province.query_value())
         }
-        Some(EmpresiteLocation::Locality { name, province }) => {
-            format!(
-                "localidad/{}/",
-                EmpresiteLocation::locality_slug(name, *province)
-            )
-        }
+        Some(EmpresiteLocation::Locality { id }) => format!("localidad/{id}/"),
         None => String::new(),
     }
 }
+
+
 
 /// Parametros de una tarea de Empresite: el indice de pagina a recorrer.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -294,22 +291,20 @@ mod tests {
 
     #[test]
     fn test_locality_path_con_provincia() {
-        use crate::types::{EmpresiteLocation, Province};
+        use crate::types::EmpresiteLocation;
 
         let location = EmpresiteLocation::Locality {
-            name: "Oviedo".to_string(),
-            province: Province::Asturias,
+            id: "OVIEDO-ASTURIAS".to_string(),
         };
         assert_eq!(location_path(Some(&location)), "localidad/OVIEDO-ASTURIAS/");
     }
 
     #[test]
-    fn test_locality_path_quita_articulos_y_adverbios() {
-        use crate::types::{EmpresiteLocation, Province};
+    fn test_locality_path_usa_slug_del_json() {
+        use crate::types::EmpresiteLocation;
 
         let location = EmpresiteLocation::Locality {
-            name: "San Mateo de Gállego".to_string(),
-            province: Province::Zaragoza,
+            id: "SAN-MATEO-GALLEGO-ZARAGOZA".to_string(),
         };
         assert_eq!(
             location_path(Some(&location)),
@@ -319,11 +314,10 @@ mod tests {
 
     #[test]
     fn test_locality_path_localidad_igual_a_provincia() {
-        use crate::types::{EmpresiteLocation, Province};
+        use crate::types::EmpresiteLocation;
 
         let location = EmpresiteLocation::Locality {
-            name: "Barcelona".to_string(),
-            province: Province::Barcelona,
+            id: "BARCELONA".to_string(),
         };
         assert_eq!(location_path(Some(&location)), "localidad/BARCELONA/");
     }

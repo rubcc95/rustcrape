@@ -17,7 +17,7 @@ import {
   setLastSelected,
   loadProjectStats,
 } from "../tauri";
-import { isMysql } from "../types";
+import { PROVINCES, PROVINCE_SLUG_BY_TOWN, isMysql } from "../types";
 import { appStore } from "./app.store.svelte";
 
 function defaultExecutionConfig(): ExecutionConfig {
@@ -57,7 +57,7 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
     incorporation_date: null,
     legal_form: null,
     location_mode: "none",
-    locality_name: "",
+    locality_id: "",
     province: null,
   };
 }
@@ -66,8 +66,8 @@ function defaultEmpresiteFilters(): EmpresiteFilters {
  *  Provincia y localidad son excluyentes: el modo decide cuál viaja. */
 function buildLocationFilter(ef: EmpresiteFilters): EmpresiteLocation | null {
   if (ef.location_mode === "locality") {
-    if (!ef.province || ef.locality_name.trim() === "") return null;
-    return { locality: { name: ef.locality_name.trim(), province: ef.province } };
+    if (!ef.province || ef.locality_id === "") return null;
+    return { locality: { id: ef.locality_id } };
   }
   if (ef.location_mode === "province" && ef.province) {
     return { province: ef.province };
@@ -84,7 +84,11 @@ function locationModeFrom(loc: EmpresiteLocation | null): LocationMode {
 /** Provincia asociada al filtro geográfico guardado (la use el modo que use). */
 function provinceFrom(loc: EmpresiteLocation | null): Province | null {
   if (!loc) return null;
-  return "locality" in loc ? loc.locality.province : loc.province;
+  if ("locality" in loc) {
+    const slug = PROVINCE_SLUG_BY_TOWN[loc.locality.id];
+    return PROVINCES.find((p) => p.slug === slug)?.value ?? null;
+  }
+  return loc.province;
 }
 
 function emptyStats(): IterationStats {
@@ -237,9 +241,9 @@ class ProjectStore {
         incorporation_date: c.empresite.incorporation_date ?? null,
         legal_form: c.empresite.legal_form ?? null,
         location_mode: locationModeFrom(c.empresite.location_filter),
-        locality_name:
+        locality_id:
           c.empresite.location_filter && "locality" in c.empresite.location_filter
-            ? c.empresite.location_filter.locality.name
+            ? c.empresite.location_filter.locality.id
             : "",
         province: provinceFrom(c.empresite.location_filter),
       },
