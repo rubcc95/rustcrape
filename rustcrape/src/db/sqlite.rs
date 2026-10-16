@@ -9,6 +9,7 @@ use crate::types::{
 };
 use crate::verboser::Verboser;
 use anyhow::Result;
+use chrono::{NaiveDate, NaiveDateTime};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
@@ -87,15 +88,18 @@ impl SqlitePersistence {
                 tfno TEXT DEFAULT '',
                 source_url TEXT DEFAULT '',
                 source TEXT NOT NULL DEFAULT '',
-                creado TEXT DEFAULT (datetime('now')),
+                creado DATETIME DEFAULT (datetime('now')),
                 legal_name TEXT,
                 tax_id TEXT,
                 legal_form TEXT,
                 sector TEXT,
-                incorporation_date TEXT,
-                last_change_date TEXT,
+                province TEXT,
+                address TEXT,
+                incorporation_date DATE,
+                last_change_date DATE,
                 corporate_purpose TEXT,
                 activity TEXT,
+                cnae_code INTEGER,
                 cnae_activity TEXT,
                 company_status TEXT,
                 UNIQUE (name, email, web, tfno)
@@ -197,25 +201,28 @@ impl SqlitePersistence {
                 .await?;
         }
 
-        const NEW_COINCIDENCE_COLUMNS: &[&str] = &[
-            "legal_name",
-            "tax_id",
-            "legal_form",
-            "sector",
-            "incorporation_date",
-            "last_change_date",
-            "corporate_purpose",
-            "activity",
-            "cnae_activity",
-            "company_status",
+        const NEW_COINCIDENCE_COLUMNS: &[(&str, &str)] = &[
+            ("legal_name", "TEXT"),
+            ("tax_id", "TEXT"),
+            ("legal_form", "TEXT"),
+            ("sector", "TEXT"),
+            ("province", "TEXT"),
+            ("address", "TEXT"),
+            ("incorporation_date", "DATE"),
+            ("last_change_date", "DATE"),
+            ("corporate_purpose", "TEXT"),
+            ("activity", "TEXT"),
+            ("cnae_code", "INTEGER"),
+            ("cnae_activity", "TEXT"),
+            ("company_status", "TEXT"),
         ];
 
-        for col in NEW_COINCIDENCE_COLUMNS {
+        for (col, def) in NEW_COINCIDENCE_COLUMNS {
             if !existing.contains(*col) {
                 verboser.debug(&format!("SQLite: adding column '{col}'"));
                 sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-                    "ALTER TABLE coincidences ADD COLUMN {} TEXT",
-                    col
+                    "ALTER TABLE coincidences ADD COLUMN {} {}",
+                    col, def
                 )))
                 .execute(&self.pool)
                 .await?;
@@ -272,8 +279,8 @@ impl Persistence for SqlitePersistence {
         let phones_before = self.count_phones().await?;
         let result = sqlx::QueryBuilder::new(
             "INSERT OR IGNORE INTO coincidences (name, web, email, tfno, source_url, source, \
-             legal_name, tax_id, legal_form, sector, incorporation_date, last_change_date, \
-             corporate_purpose, activity, cnae_activity, company_status) ",
+             legal_name, tax_id, legal_form, sector, province, address, incorporation_date, last_change_date, \
+             corporate_purpose, activity, cnae_code, cnae_activity, company_status) ",
         )
         .push_values(filtered, |mut b, c| {
             b.push_bind(c.name)
@@ -286,10 +293,13 @@ impl Persistence for SqlitePersistence {
                 .push_bind(c.tax_id)
                 .push_bind(c.legal_form)
                 .push_bind(c.sector)
+                .push_bind(c.province)
+                .push_bind(c.address)
                 .push_bind(c.incorporation_date)
                 .push_bind(c.last_change_date)
                 .push_bind(c.corporate_purpose)
                 .push_bind(c.activity)
+                .push_bind(c.cnae_code)
                 .push_bind(c.cnae_activity)
                 .push_bind(c.company_status);
         })
@@ -352,8 +362,8 @@ impl Persistence for SqlitePersistence {
 
         let rows = sqlx::QueryBuilder::new(
             "SELECT id, name, web, email, tfno, source_url, source, creado, \
-             legal_name, tax_id, legal_form, sector, incorporation_date, last_change_date, \
-             corporate_purpose, activity, cnae_activity, company_status \
+             legal_name, tax_id, legal_form, sector, province, address, incorporation_date, last_change_date, \
+             corporate_purpose, activity, cnae_code, cnae_activity, company_status \
              FROM coincidences ORDER BY ",
         )
         .push(column.column_name())
@@ -377,15 +387,18 @@ impl Persistence for SqlitePersistence {
                 .get::<Option<String>, _>("source_url")
                 .unwrap_or_default(),
             source: row.get::<Option<String>, _>("source").unwrap_or_default(),
-            creado: row.get::<Option<String>, _>("creado"),
+            creado: row.get::<Option<NaiveDateTime>, _>("creado"),
             legal_name: row.get::<Option<String>, _>("legal_name"),
             tax_id: row.get::<Option<String>, _>("tax_id"),
             legal_form: row.get::<Option<String>, _>("legal_form"),
             sector: row.get::<Option<String>, _>("sector"),
-            incorporation_date: row.get::<Option<String>, _>("incorporation_date"),
-            last_change_date: row.get::<Option<String>, _>("last_change_date"),
+            province: row.get::<Option<String>, _>("province"),
+            address: row.get::<Option<String>, _>("address"),
+            incorporation_date: row.get::<Option<NaiveDate>, _>("incorporation_date"),
+            last_change_date: row.get::<Option<NaiveDate>, _>("last_change_date"),
             corporate_purpose: row.get::<Option<String>, _>("corporate_purpose"),
             activity: row.get::<Option<String>, _>("activity"),
+            cnae_code: row.get::<Option<i32>, _>("cnae_code"),
             cnae_activity: row.get::<Option<String>, _>("cnae_activity"),
             company_status: row.get::<Option<String>, _>("company_status"),
         })

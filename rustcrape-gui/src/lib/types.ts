@@ -15,10 +15,13 @@ export type CoincidenceColumn =
   | "tax_id"
   | "legal_form"
   | "sector"
+  | "province"
+  | "address"
   | "incorporation_date"
   | "last_change_date"
   | "corporate_purpose"
   | "activity"
+  | "cnae_code"
   | "cnae_activity"
   | "company_status";
 
@@ -37,10 +40,13 @@ export interface CoincidenceRecord {
   tax_id: string | null;
   legal_form: string | null;
   sector: string | null;
+  province: string | null;
+  address: string | null;
   incorporation_date: string | null;
   last_change_date: string | null;
   corporate_purpose: string | null;
   activity: string | null;
+  cnae_code: number | null;
   cnae_activity: string | null;
   company_status: string | null;
 }

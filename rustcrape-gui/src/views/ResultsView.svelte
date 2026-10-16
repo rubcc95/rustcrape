@@ -17,11 +17,14 @@
     { key: "tax_id", label: "CIF/NIF", width: 110 },
     { key: "legal_form", label: "Forma jurídica", width: 140 },
     { key: "sector", label: "Sector", width: 140 },
+    { key: "province", label: "Provincia", width: 140 },
+    { key: "address", label: "Dirección", width: 240 },
     { key: "incorporation_date", label: "Constitución", width: 120 },
     { key: "last_change_date", label: "Último cambio", width: 120 },
     { key: "corporate_purpose", label: "Objeto social", width: 260 },
     { key: "activity", label: "Actividad", width: 200 },
-    { key: "cnae_activity", label: "CNAE", width: 90 },
+    { key: "cnae_code", label: "CNAE código", width: 110 },
+    { key: "cnae_activity", label: "CNAE", width: 220 },
     { key: "company_status", label: "Estado", width: 130 },
   ];
 

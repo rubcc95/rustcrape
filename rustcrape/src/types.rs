@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod zero_is_none {
@@ -43,15 +44,21 @@ pub struct Coincidence {
     pub legal_form: Option<String>,
     /// Sector (Empresite).
     pub sector: Option<String>,
+    /// Provincia de la direccion (Empresite). GMaps no la rellena.
+    pub province: Option<String>,
+    /// Direccion completa (Empresite). GMaps no la rellena.
+    pub address: Option<String>,
     /// Fecha de constitucion (Empresite).
-    pub incorporation_date: Option<String>,
+    pub incorporation_date: Option<NaiveDate>,
     /// Fecha del ultimo cambio en el registro (Empresite).
-    pub last_change_date: Option<String>,
+    pub last_change_date: Option<NaiveDate>,
     /// Objeto social (Empresite).
     pub corporate_purpose: Option<String>,
     /// Actividad declarada (Empresite).
     pub activity: Option<String>,
-    /// Actividad CNAE (Empresite).
+    /// Codigo CNAE (Empresite), solo el numero.
+    pub cnae_code: Option<i32>,
+    /// Descripcion de la actividad CNAE (Empresite), sin el codigo.
     pub cnae_activity: Option<String>,
     /// Estado de la empresa (Empresite).
     pub company_status: Option<String>,
@@ -68,10 +75,13 @@ impl Coincidence {
             || self.tax_id.is_some()
             || self.legal_form.is_some()
             || self.sector.is_some()
+            || self.province.is_some()
+            || self.address.is_some()
             || self.incorporation_date.is_some()
             || self.last_change_date.is_some()
             || self.corporate_purpose.is_some()
             || self.activity.is_some()
+            || self.cnae_code.is_some()
             || self.cnae_activity.is_some()
             || self.company_status.is_some()
     }
@@ -767,10 +777,13 @@ pub enum CoincidenceColumn {
     TaxId,
     LegalForm,
     Sector,
+    Province,
+    Address,
     IncorporationDate,
     LastChangeDate,
     CorporatePurpose,
     Activity,
+    CnaeCode,
     CnaeActivity,
     CompanyStatus,
 }
@@ -792,10 +805,13 @@ impl CoincidenceColumn {
             CoincidenceColumn::TaxId => "tax_id",
             CoincidenceColumn::LegalForm => "legal_form",
             CoincidenceColumn::Sector => "sector",
+            CoincidenceColumn::Province => "province",
+            CoincidenceColumn::Address => "address",
             CoincidenceColumn::IncorporationDate => "incorporation_date",
             CoincidenceColumn::LastChangeDate => "last_change_date",
             CoincidenceColumn::CorporatePurpose => "corporate_purpose",
             CoincidenceColumn::Activity => "activity",
+            CoincidenceColumn::CnaeCode => "cnae_code",
             CoincidenceColumn::CnaeActivity => "cnae_activity",
             CoincidenceColumn::CompanyStatus => "company_status",
         }
@@ -831,15 +847,18 @@ pub struct CoincidenceRecord {
     pub tfno: String,
     pub source_url: String,
     pub source: String,
-    pub creado: Option<String>,
+    pub creado: Option<NaiveDateTime>,
     pub legal_name: Option<String>,
     pub tax_id: Option<String>,
     pub legal_form: Option<String>,
     pub sector: Option<String>,
-    pub incorporation_date: Option<String>,
-    pub last_change_date: Option<String>,
+    pub province: Option<String>,
+    pub address: Option<String>,
+    pub incorporation_date: Option<NaiveDate>,
+    pub last_change_date: Option<NaiveDate>,
     pub corporate_purpose: Option<String>,
     pub activity: Option<String>,
+    pub cnae_code: Option<i32>,
     pub cnae_activity: Option<String>,
     pub company_status: Option<String>,
 }

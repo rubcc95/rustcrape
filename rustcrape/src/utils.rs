@@ -1,6 +1,72 @@
 use anyhow::Result;
+use chrono::NaiveDate;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+
+/// Convierte una fecha de Empresite a `NaiveDate`. Empresite la devuelve en
+/// formato `dia-mes-ano` sin ceros a la izquierda (`23-6-2005`); se aceptan
+/// tambien `/` como separador y ceros a la izquierda. Devuelve `None` si el
+/// texto esta vacio, no tiene el formato esperado o la fecha no existe.
+pub fn parse_empresite_date(raw: &str) -> Option<NaiveDate> {
+    let mut parts = raw.trim().split(['-', '/']);
+    let day: u32 = parts.next()?.trim().parse().ok()?;
+    let month: u32 = parts.next()?.trim().parse().ok()?;
+    let year: i32 = parts.next()?.trim().parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    NaiveDate::from_ymd_opt(year, month, day)
+}
+
+/// Separa la direccion de Empresite en `(direccion_completa, provincia)`. La
+/// direccion tiene el formato `calle, numero, municipio, CP, provincia`, por lo
+/// que la provincia es el ultimo segmento tras la ultima coma. Devuelve `None`
+/// en cada campo que falte o este vacio.
+pub fn split_address_province(raw: &str) -> (Option<String>, Option<String>) {
+    let address = raw.trim();
+    if address.is_empty() {
+        return (None, None);
+    }
+    let province = address
+        .rsplit_once(',')
+        .map(|(_, tail)| tail.trim())
+        .filter(|tail| !tail.is_empty())
+        .map(str::to_string);
+    (Some(address.to_string()), province)
+}
+
+/// Separa la actividad CNAE de Empresite (`codigo - descripcion`, p. ej.
+/// `2829 - Fabricacion de otra maquinaria`) en su codigo numerico y su
+/// descripcion textual. La descripcion conserva los guiones que pueda contener.
+/// Devuelve `(None, None)` si el texto esta vacio.
+pub fn split_cnae(raw: &str) -> (Option<i32>, Option<String>) {
+    let text = raw.trim();
+    if text.is_empty() {
+        return (None, None);
+    }
+    match text.split_once('-') {
+        Some((code, desc)) => {
+            let desc = desc.trim();
+            match code.trim().parse::<i32>() {
+                Ok(code) => (
+                    Some(code),
+                    if desc.is_empty() {
+                        None
+                    } else {
+                        Some(desc.to_string())
+                    },
+                ),
+                Err(_) => (None, Some(text.to_string())),
+            }
+        }
+        // Sin separador: si es puramente numerico lo tratamos como codigo,
+        // en caso contrario como descripcion.
+        None => match text.parse::<i32>() {
+            Ok(code) => (Some(code), None),
+            Err(_) => (None, Some(text.to_string())),
+        },
+    }
+}
 
 /// Retardo pseudo-aleatorio entre peticiones, dentro del rango configurado.
 pub fn random_delay(min_ms: u64, max_ms: u64) -> Duration {

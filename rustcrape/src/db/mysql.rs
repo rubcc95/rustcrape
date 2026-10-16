@@ -5,6 +5,7 @@ use crate::types::{
 };
 use crate::verboser::Verboser;
 use anyhow::Result;
+use chrono::{NaiveDate, NaiveDateTime};
 use sqlx::{MySqlPool, Row};
 
 const NUMERIC_TYPES: &[&str] = &[
@@ -234,10 +235,13 @@ impl MysqlPersistence {
             ("tax_id", "VARCHAR(20) DEFAULT NULL"),
             ("legal_form", "VARCHAR(100) DEFAULT NULL"),
             ("sector", "VARCHAR(100) DEFAULT NULL"),
-            ("incorporation_date", "VARCHAR(20) DEFAULT NULL"),
-            ("last_change_date", "VARCHAR(20) DEFAULT NULL"),
+            ("province", "VARCHAR(100) DEFAULT NULL"),
+            ("address", "VARCHAR(255) DEFAULT NULL"),
+            ("incorporation_date", "DATE DEFAULT NULL"),
+            ("last_change_date", "DATE DEFAULT NULL"),
             ("corporate_purpose", "TEXT"),
             ("activity", "VARCHAR(255) DEFAULT NULL"),
+            ("cnae_code", "INT DEFAULT NULL"),
             ("cnae_activity", "VARCHAR(255) DEFAULT NULL"),
             ("company_status", "VARCHAR(50) DEFAULT NULL"),
         ];
@@ -270,15 +274,18 @@ impl MysqlPersistence {
                 tfno VARCHAR(50) DEFAULT '',
                 source_url TEXT DEFAULT '',
                 source VARCHAR(50) NOT NULL DEFAULT '',
-                creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                creado DATETIME DEFAULT CURRENT_TIMESTAMP,
                 legal_name VARCHAR(255) DEFAULT NULL,
                 tax_id VARCHAR(20) DEFAULT NULL,
                 legal_form VARCHAR(100) DEFAULT NULL,
                 sector VARCHAR(100) DEFAULT NULL,
-                incorporation_date VARCHAR(20) DEFAULT NULL,
-                last_change_date VARCHAR(20) DEFAULT NULL,
+                province VARCHAR(100) DEFAULT NULL,
+                address VARCHAR(255) DEFAULT NULL,
+                incorporation_date DATE DEFAULT NULL,
+                last_change_date DATE DEFAULT NULL,
                 corporate_purpose TEXT,
                 activity VARCHAR(255) DEFAULT NULL,
+                cnae_code INT DEFAULT NULL,
                 cnae_activity VARCHAR(255) DEFAULT NULL,
                 company_status VARCHAR(50) DEFAULT NULL,
                 UNIQUE KEY uq_datos (name, email, web, tfno)
@@ -504,8 +511,8 @@ impl Persistence for MysqlPersistence {
         let phones_before = self.count_phones().await?;
         let result = sqlx::QueryBuilder::new(
             "INSERT IGNORE INTO coincidences (name, web, email, tfno, source_url, source, \
-             legal_name, tax_id, legal_form, sector, incorporation_date, last_change_date, \
-             corporate_purpose, activity, cnae_activity, company_status) ",
+             legal_name, tax_id, legal_form, sector, province, address, incorporation_date, last_change_date, \
+             corporate_purpose, activity, cnae_code, cnae_activity, company_status) ",
         )
         .push_values(filtered, |mut b, c| {
             b.push_bind(c.name)
@@ -518,10 +525,13 @@ impl Persistence for MysqlPersistence {
                 .push_bind(c.tax_id)
                 .push_bind(c.legal_form)
                 .push_bind(c.sector)
+                .push_bind(c.province)
+                .push_bind(c.address)
                 .push_bind(c.incorporation_date)
                 .push_bind(c.last_change_date)
                 .push_bind(c.corporate_purpose)
                 .push_bind(c.activity)
+                .push_bind(c.cnae_code)
                 .push_bind(c.cnae_activity)
                 .push_bind(c.company_status);
         })
@@ -592,10 +602,9 @@ impl Persistence for MysqlPersistence {
         // usuario: el fragmento ORDER BY es seguro frente a inyeccion SQL.
 
         let rows = sqlx::QueryBuilder::new(
-            "SELECT id, name, web, email, tfno, source_url, source, \
-             CAST(creado AS CHAR) AS creado, legal_name, tax_id, legal_form, sector, \
-             incorporation_date, last_change_date, corporate_purpose, activity, \
-             cnae_activity, company_status \
+            "SELECT id, name, web, email, tfno, source_url, source, creado, legal_name, \
+             tax_id, legal_form, sector, province, address, incorporation_date, last_change_date, \
+             corporate_purpose, activity, cnae_code, cnae_activity, company_status \
              FROM coincidences ORDER BY ",
         )
         .push(column.column_name())
@@ -619,15 +628,18 @@ impl Persistence for MysqlPersistence {
                 .get::<Option<String>, _>("source_url")
                 .unwrap_or_default(),
             source: row.get::<Option<String>, _>("source").unwrap_or_default(),
-            creado: row.get::<Option<String>, _>("creado"),
+            creado: row.get::<Option<NaiveDateTime>, _>("creado"),
             legal_name: row.get::<Option<String>, _>("legal_name"),
             tax_id: row.get::<Option<String>, _>("tax_id"),
             legal_form: row.get::<Option<String>, _>("legal_form"),
             sector: row.get::<Option<String>, _>("sector"),
-            incorporation_date: row.get::<Option<String>, _>("incorporation_date"),
-            last_change_date: row.get::<Option<String>, _>("last_change_date"),
+            province: row.get::<Option<String>, _>("province"),
+            address: row.get::<Option<String>, _>("address"),
+            incorporation_date: row.get::<Option<NaiveDate>, _>("incorporation_date"),
+            last_change_date: row.get::<Option<NaiveDate>, _>("last_change_date"),
             corporate_purpose: row.get::<Option<String>, _>("corporate_purpose"),
             activity: row.get::<Option<String>, _>("activity"),
+            cnae_code: row.get::<Option<i32>, _>("cnae_code"),
             cnae_activity: row.get::<Option<String>, _>("cnae_activity"),
             company_status: row.get::<Option<String>, _>("company_status"),
         })

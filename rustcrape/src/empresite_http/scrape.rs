@@ -160,6 +160,7 @@ struct DetailRaw {
     tax_id: String,
     legal_form: String,
     sector: String,
+    address: String,
     incorporation_date: String,
     last_change_date: String,
     corporate_purpose: String,
@@ -214,6 +215,15 @@ fn extract_detail(html: &str) -> DetailRaw {
         .map(text_of)
         .unwrap_or_default();
 
+    // La direccion vive en `#direc-mapa`; si no estuviera (HTML sin renderizar),
+    // se usa el campo "Dirección" de la ficha.
+    let address = doc
+        .select(&sel("#direc-mapa"))
+        .next()
+        .map(text_of)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| field_by_label(&doc, "Dirección"));
+
     DetailRaw {
         name,
         email,
@@ -223,6 +233,7 @@ fn extract_detail(html: &str) -> DetailRaw {
         tax_id: field_by_label(&doc, "CIF"),
         legal_form: field_by_label(&doc, "Forma jurídica"),
         sector: field_by_label(&doc, "Sector"),
+        address,
         incorporation_date: field_by_label(&doc, "Fecha de constitución"),
         last_change_date: field_by_label(&doc, "Fecha último cambio"),
         corporate_purpose: field_by_label(&doc, "Objeto social"),
@@ -482,11 +493,12 @@ async fn scrape_detail(
         let tax_id = clean_text(&raw.tax_id);
         let legal_form = clean_text(&raw.legal_form);
         let sector = clean_text(&raw.sector);
-        let incorporation_date = clean_text(&raw.incorporation_date);
-        let last_change_date = clean_text(&raw.last_change_date);
+        let (address, province) = split_address_province(&raw.address);
+        let incorporation_date = parse_empresite_date(&raw.incorporation_date);
+        let last_change_date = parse_empresite_date(&raw.last_change_date);
         let corporate_purpose = clean_text(&raw.corporate_purpose);
         let activity = clean_text(&raw.activity);
-        let cnae_activity = clean_text(&raw.cnae_activity);
+        let (cnae_code, cnae_activity) = split_cnae(&raw.cnae_activity);
         let company_status = clean_text(&raw.company_status);
 
         verboser.debug(&format!(
@@ -508,10 +520,13 @@ async fn scrape_detail(
             tax_id,
             legal_form,
             sector,
+            province,
+            address,
             incorporation_date,
             last_change_date,
             corporate_purpose,
             activity,
+            cnae_code,
             cnae_activity,
             company_status,
         }));

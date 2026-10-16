@@ -439,6 +439,8 @@ struct DetailRaw {
     #[serde(default)]
     sector: String,
     #[serde(default)]
+    address: String,
+    #[serde(default)]
     incorporation_date: String,
     #[serde(default)]
     last_change_date: String,
@@ -477,6 +479,7 @@ async fn extract_detail(page: &Page, verboser: &dyn Verboser) -> Result<DetailRa
             tax_id: field('CIF'),
             legal_form: field('Forma jurídica'),
             sector: field('Sector'),
+            address: ((document.querySelector('#direc-mapa')?.textContent || '').trim() || field('Dirección')),
             incorporation_date: field('Fecha de constitución'),
             last_change_date: field('Fecha último cambio'),
             corporate_purpose: field('Objeto social'),
@@ -723,11 +726,12 @@ async fn scrape_detail(
         let tax_id = clean_text(&raw.tax_id);
         let legal_form = clean_text(&raw.legal_form);
         let sector = clean_text(&raw.sector);
-        let incorporation_date = clean_text(&raw.incorporation_date);
-        let last_change_date = clean_text(&raw.last_change_date);
+        let (address, province) = split_address_province(&raw.address);
+        let incorporation_date = parse_empresite_date(&raw.incorporation_date);
+        let last_change_date = parse_empresite_date(&raw.last_change_date);
         let corporate_purpose = clean_text(&raw.corporate_purpose);
         let activity = clean_text(&raw.activity);
-        let cnae_activity = clean_text(&raw.cnae_activity);
+        let (cnae_code, cnae_activity) = split_cnae(&raw.cnae_activity);
         let company_status = clean_text(&raw.company_status);
 
         verboser.debug(&format!(
@@ -750,10 +754,13 @@ async fn scrape_detail(
             tax_id,
             legal_form,
             sector,
+            province,
+            address,
             incorporation_date,
             last_change_date,
             corporate_purpose,
             activity,
+            cnae_code,
             cnae_activity,
             company_status,
         })); 
